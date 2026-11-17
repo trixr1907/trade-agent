@@ -47,3 +47,6 @@ check_dashboard.py
 check_import.py
 check_routes.py
 list_routes.py
+# Cursor-Regeln aus agency-agents, generiert und regenerierbar mit:
+#   agency-agents/scripts/install.sh --tool cursor  (im Projektordner starten)
+.cursor/
