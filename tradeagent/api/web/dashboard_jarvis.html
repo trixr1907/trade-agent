@@ -2593,6 +2593,11 @@
     }
 
     async function executeProposal(proposalId) {
+      if (!state.auth) {
+        showLogin();
+        return;
+      }
+
       const confirmed = window.confirm(
         "Ausführung bestätigen?\n\nDie freigegebene Order wird im aktuell konfigurierten Handelsmodus platziert. Prüfe Symbol, Richtung, Größe und Risikolimits."
       );
