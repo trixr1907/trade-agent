@@ -39,6 +39,9 @@ Thumbs.db
 *.swp
 *.swo
 
+# Runtime-State (SQLite) — never version-controlled
+*.db
+
 # Temporary test/debug scripts
 check_dashboard.py
 check_import.py

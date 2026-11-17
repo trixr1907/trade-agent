@@ -225,6 +225,27 @@ def execute(
             target_price=proposal.target_price or proposal.signal.target_price,
             opened_at=_now_iso(),
         )
+        # ── Stop/Target auf Exchange platzieren (fail-safe) ───────────────────
+        stop_order_id: Optional[str] = None
+        target_order_id: Optional[str] = None
+        try:
+            stop_order_id, target_order_id = broker.place_stop_orders(
+                symbol=symbol,
+                entry_side=proposal.signal.direction.value,
+                qty=qty,
+                stop_price=pos.stop_price,
+                target_price=pos.target_price,
+            )
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning(
+                "place_stop_orders fehlgeschlagen für %s: %s — Position bleibt ohne Exchange-Stop.",
+                symbol, exc,
+            )
+
+        # Stop-IDs in Position speichern (auch wenn None)
+        pos.stop_order_id = stop_order_id
+        pos.target_order_id = target_order_id
         state.add_position(pos)
         proposal.state = ApprovalState.EXECUTED
         proposal.executed_at = now_utc()

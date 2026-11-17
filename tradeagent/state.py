@@ -31,6 +31,28 @@ class OpenPosition:
     stop_price: float
     target_price: float
     opened_at: str       # ISO-8601
+    # Exchange-Order-IDs für Stop/Target — None wenn Paper oder noch nicht gesetzt
+    stop_order_id: Optional[str] = None
+    target_order_id: Optional[str] = None
+
+
+def _row_to_open_pos(r) -> "OpenPosition":
+    """Konvertiert eine SQLite-Row in ein OpenPosition-Dataclass."""
+    # stop_order_id / target_order_id können fehlen (ältere DB ohne Migration)
+    keys = r.keys() if hasattr(r, "keys") else []
+    return OpenPosition(
+        proposal_id=r["proposal_id"],
+        symbol=r["symbol"],
+        side=r["side"],
+        qty=r["qty"],
+        entry_price=r["entry_price"],
+        notional_usd=r["notional_usd"],
+        stop_price=r["stop_price"],
+        target_price=r["target_price"],
+        opened_at=r["opened_at"],
+        stop_order_id=r["stop_order_id"] if "stop_order_id" in keys else None,
+        target_order_id=r["target_order_id"] if "target_order_id" in keys else None,
+    )
 
 
 # ─── StateStore ───────────────────────────────────────────────────────────────
@@ -56,15 +78,17 @@ class StateStore:
             cur = self._conn.cursor()
             cur.executescript("""
                 CREATE TABLE IF NOT EXISTS open_positions (
-                    proposal_id  TEXT PRIMARY KEY,
-                    symbol       TEXT NOT NULL,
-                    side         TEXT NOT NULL,
-                    qty          REAL NOT NULL,
-                    entry_price  REAL NOT NULL,
-                    notional_usd REAL NOT NULL,
-                    stop_price   REAL NOT NULL,
-                    target_price REAL NOT NULL,
-                    opened_at    TEXT NOT NULL
+                    proposal_id    TEXT PRIMARY KEY,
+                    symbol         TEXT NOT NULL,
+                    side           TEXT NOT NULL,
+                    qty            REAL NOT NULL,
+                    entry_price    REAL NOT NULL,
+                    notional_usd   REAL NOT NULL,
+                    stop_price     REAL NOT NULL,
+                    target_price   REAL NOT NULL,
+                    opened_at      TEXT NOT NULL,
+                    stop_order_id  TEXT,
+                    target_order_id TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS closed_positions (
@@ -108,20 +132,7 @@ class StateStore:
         with self._lock:
             cur = self._conn.execute("SELECT * FROM open_positions")
             rows = cur.fetchall()
-        return [
-            OpenPosition(
-                proposal_id=r["proposal_id"],
-                symbol=r["symbol"],
-                side=r["side"],
-                qty=r["qty"],
-                entry_price=r["entry_price"],
-                notional_usd=r["notional_usd"],
-                stop_price=r["stop_price"],
-                target_price=r["target_price"],
-                opened_at=r["opened_at"],
-            )
-            for r in rows
-        ]
+        return [_row_to_open_pos(r) for r in rows]
 
     def open_position_for_symbol(self, symbol: str) -> Optional[OpenPosition]:
         """Gibt die offene Position für ein Symbol zurück, oder None."""
@@ -133,17 +144,7 @@ class StateStore:
             row = cur.fetchone()
         if row is None:
             return None
-        return OpenPosition(
-            proposal_id=row["proposal_id"],
-            symbol=row["symbol"],
-            side=row["side"],
-            qty=row["qty"],
-            entry_price=row["entry_price"],
-            notional_usd=row["notional_usd"],
-            stop_price=row["stop_price"],
-            target_price=row["target_price"],
-            opened_at=row["opened_at"],
-        )
+        return _row_to_open_pos(row)
 
     def open_count(self) -> int:
         """Anzahl aktuell offener Positionen."""
@@ -158,8 +159,8 @@ class StateStore:
                 """
                 INSERT OR REPLACE INTO open_positions
                     (proposal_id, symbol, side, qty, entry_price, notional_usd,
-                     stop_price, target_price, opened_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     stop_price, target_price, opened_at, stop_order_id, target_order_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     pos.proposal_id,
@@ -171,7 +172,27 @@ class StateStore:
                     pos.stop_price,
                     pos.target_price,
                     pos.opened_at,
+                    pos.stop_order_id,
+                    pos.target_order_id,
                 ),
+            )
+            self._conn.commit()
+
+    def update_stop_order_ids(
+        self,
+        proposal_id: str,
+        stop_order_id: Optional[str],
+        target_order_id: Optional[str],
+    ) -> None:
+        """Aktualisiert die Exchange-Order-IDs für Stop/Target nach dem Place."""
+        with self._lock:
+            self._conn.execute(
+                """
+                UPDATE open_positions
+                SET stop_order_id = ?, target_order_id = ?
+                WHERE proposal_id = ?
+                """,
+                (stop_order_id, target_order_id, proposal_id),
             )
             self._conn.commit()
 
@@ -192,17 +213,7 @@ class StateStore:
             if row is None:
                 return None
 
-            pos = OpenPosition(
-                proposal_id=row["proposal_id"],
-                symbol=row["symbol"],
-                side=row["side"],
-                qty=row["qty"],
-                entry_price=row["entry_price"],
-                notional_usd=row["notional_usd"],
-                stop_price=row["stop_price"],
-                target_price=row["target_price"],
-                opened_at=row["opened_at"],
-            )
+            pos = _row_to_open_pos(row)
             closed_at = _now_iso()
             new_equity = self._equity_now_unlocked() + pnl_usd
 

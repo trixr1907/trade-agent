@@ -2,16 +2,29 @@
 
 **Prinzip:** Paper ist immer erlaubt. Live ist fail-closed und nur nach
 validiertem Antrag + Freigabe + Limits möglich.
+
+Nach einem Entry-Fill wird sofort ein Stop-Order (OCO wenn die Exchange es
+unterstützt, sonst Stop-Market + separates Target-Limit) platziert.
+Die Exchange-native Stop-Order lebt unabhängig vom Agent-Prozess.
 """
 from __future__ import annotations
 
 import uuid
 from dataclasses import asdict
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from .config import Config
 from .models import ExecutionResult
 
+
+# ── Hilfsfunktion: Stop-Seite bestimmen ──────────────────────────────────────
+
+def _stop_side(entry_side: str) -> str:
+    """Gegenüberliegende Seite für Stop/Target-Orders."""
+    return "sell" if entry_side.lower() == "buy" else "buy"
+
+
+# ── Paper-Broker ──────────────────────────────────────────────────────────────
 
 class PaperBroker:
     """Simuliert Order-Ausführung ohne echtes Kapital.
@@ -19,6 +32,9 @@ class PaperBroker:
     Fill-Preis = aktueller Mark-Preis; Spread/Liquidity bleiben einfach,
     aber der Code-Pfad ist identisch mit Live — das erlaubt später den
     Wechsel ohne logische Änderung.
+
+    Stop/Target werden als simulierte IDs zurückgegeben, damit die
+    Sync-Schicht (monitor.py) denselben Code-Pfad nutzen kann.
     """
 
     def __init__(self, cfg: Config):
@@ -41,6 +57,29 @@ class PaperBroker:
             raw={"simulated": True},
         )
 
+    def place_stop_orders(
+        self,
+        symbol: str,
+        entry_side: str,
+        qty: float,
+        stop_price: float,
+        target_price: float,
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Simuliert Stop + Target-Orders. Gibt (stop_order_id, target_order_id) zurück."""
+        stop_id = f"paper-stop-{uuid.uuid4().hex[:10]}"
+        target_id = f"paper-target-{uuid.uuid4().hex[:10]}"
+        return stop_id, target_id
+
+    def cancel_order(self, symbol: str, order_id: str) -> bool:
+        """Simuliert Order-Cancel. Immer erfolgreich im Paper-Modus."""
+        return True
+
+    def fetch_order(self, symbol: str, order_id: str) -> Optional[Dict[str, Any]]:
+        """Simuliert fetch_order — gibt None zurück (kein Exchange-State im Paper-Modus)."""
+        return None
+
+
+# ── Live-Broker ───────────────────────────────────────────────────────────────
 
 class LiveBroker:
     """Echte Ausführung via CCXT. Nur nach Freigabe + Limits nutzbar."""
@@ -50,7 +89,6 @@ class LiveBroker:
             raise RuntimeError("LiveBroker ohne API-Keys nicht möglich.")
         self.cfg = cfg
         from .data import create_exchange
-
         self.exchange = create_exchange(cfg.exchange)
 
     def place_order(
@@ -86,7 +124,6 @@ class LiveBroker:
                 raw={"error": "Symbol nicht in Allowlist"},
             )
 
-        # Market-Order platzieren
         order = self.exchange.create_market_order(symbol, side, qty)
         return ExecutionResult(
             proposal_id="",
@@ -101,8 +138,101 @@ class LiveBroker:
             raw=asdict(order) if hasattr(order, "__dict__") else dict(order),
         )
 
+    def place_stop_orders(
+        self,
+        symbol: str,
+        entry_side: str,
+        qty: float,
+        stop_price: float,
+        target_price: float,
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Platziert Stop-Loss + Take-Profit auf der Exchange.
 
-def make_broker(cfg: Config):
+        Versucht zuerst OCO (create_oco_order). Fällt auf
+        Stop-Market + Limit-Target zurück, wenn OCO nicht
+        unterstützt wird.
+
+        Gibt (stop_order_id, target_order_id) zurück.
+        Beide können None sein wenn das Platzieren scheitert — der
+        Entry-Trade bleibt trotzdem bestehen (fail-safe).
+        """
+        close_side = _stop_side(entry_side)
+        stop_id: Optional[str] = None
+        target_id: Optional[str] = None
+
+        # ── Versuch 1: OCO ────────────────────────────────────────────────────
+        try:
+            oco = self.exchange.create_oco_order(
+                symbol=symbol,
+                side=close_side,
+                amount=qty,
+                price=target_price,
+                stopPrice=stop_price,
+                params={
+                    "stopLossPrice": stop_price,
+                    "takeProfitPrice": target_price,
+                },
+            )
+            if isinstance(oco, list) and len(oco) >= 2:
+                stop_id = str(oco[0].get("id", ""))
+                target_id = str(oco[1].get("id", ""))
+            elif isinstance(oco, dict):
+                ids = oco.get("orders", oco.get("orderIds", []))
+                if isinstance(ids, list) and len(ids) >= 2:
+                    stop_id = str(ids[0])
+                    target_id = str(ids[1])
+                else:
+                    stop_id = str(oco.get("id", ""))
+            return stop_id, target_id
+        except Exception:
+            pass  # OCO nicht unterstützt → Fallback
+
+        # ── Fallback: Stop-Market + Limit-Target ──────────────────────────────
+        try:
+            stop_order = self.exchange.create_order(
+                symbol=symbol,
+                type="stop_market",
+                side=close_side,
+                amount=qty,
+                params={"stopPrice": stop_price, "reduceOnly": True},
+            )
+            stop_id = str(stop_order.get("id", ""))
+        except Exception:
+            pass
+
+        try:
+            target_order = self.exchange.create_limit_order(
+                symbol=symbol,
+                side=close_side,
+                amount=qty,
+                price=target_price,
+                params={"reduceOnly": True},
+            )
+            target_id = str(target_order.get("id", ""))
+        except Exception:
+            pass
+
+        return stop_id, target_id
+
+    def cancel_order(self, symbol: str, order_id: str) -> bool:
+        """Cancelt eine Order auf der Exchange. Gibt True zurück bei Erfolg."""
+        try:
+            self.exchange.cancel_order(order_id, symbol)
+            return True
+        except Exception:
+            return False
+
+    def fetch_order(self, symbol: str, order_id: str) -> Optional[Dict[str, Any]]:
+        """Holt den aktuellen Status einer Order von der Exchange."""
+        try:
+            return dict(self.exchange.fetch_order(order_id, symbol))
+        except Exception:
+            return None
+
+
+# ── Factory ───────────────────────────────────────────────────────────────────
+
+def make_broker(cfg: Config) -> "PaperBroker | LiveBroker":
     """Returns Paper (default) or Live broker depending on mode."""
     if cfg.trading.is_live:
         return LiveBroker(cfg)
