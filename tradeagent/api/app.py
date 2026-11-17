@@ -12,10 +12,10 @@ Endpunkte:
 from __future__ import annotations
 
 import os
+import time
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import List
-
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
@@ -23,7 +23,7 @@ from pydantic import BaseModel
 
 from ..backtest import CostModel, WalkForwardConfig, run_walk_forward
 from ..config import load_config
-from ..data import fetch_ohlcv
+from ..data import create_exchange, fetch_ohlcv
 from ..graph import (
     ProposalStore,
     approve,
@@ -177,13 +177,84 @@ def backtest_endpoint(req: BacktestRequest):
     return out
 
 
+# ── Health-Cache ──────────────────────────────────────────────────────────────
+# ping_cache: Ergebnis des Public-Pings, ~30s gültig
+# keys_cache: Ergebnis der Key-Validierung, ~60s gültig
+_ping_cache: Dict[str, Any] = {"ts": 0.0, "data": None}
+_keys_cache: Dict[str, Any] = {"ts": 0.0, "data": None}
+
+
+def _ping_exchange() -> tuple[bool, float]:
+    """Öffentlicher Ping gegen Bitget BTC/USDT-Ticker.
+
+    Gibt (erreichbar, latenz_ms) zurück. Timeout 5 s.
+    Wirft niemals — Fehler werden vom Aufrufer als degraded behandelt.
+    """
+    ex = create_exchange(cfg.exchange)
+    # Timeout-Support via ccxt-Options
+    ex.options.setdefault("fetchTickerTimeout", 5000)
+    ex.timeout = 5000
+    t0 = time.perf_counter()
+    ex.fetch_ticker("BTC/USDT")
+    latency_ms = (time.perf_counter() - t0) * 1000
+    return True, round(latency_ms, 1)
+
+
+def _validate_keys() -> bool:
+    """Private Abfrage (fetch_balance) zur API-Key-Validierung.
+
+    Gibt True zurück wenn Keys funktionieren, False bei Auth-Fehler.
+    Wirft niemals.
+    """
+    try:
+        ex = create_exchange(cfg.exchange)
+        ex.timeout = 5000
+        ex.fetch_balance()
+        return True
+    except Exception:
+        return False
+
+
 @app.get("/health")
-def health():
+def health(deep: bool = False):
+    """Gesundheits-Check mit Exchange-Ping und optionaler API-Key-Validierung.
+
+    - exchange_connected: Public-Ping (cached 30 s, Timeout 5 s)
+    - api_keys_valid:     nur bei Live-Modus oder ?deep=1 (cached 60 s)
+    - Gibt immer HTTP 200 zurück — kein 500 bei Exchange-Ausfall.
+    """
+    now = time.time()
+
+    # Public-Ping (cached 30 s)
+    if _ping_cache["data"] is None or (now - _ping_cache["ts"]) > 30:
+        try:
+            connected, latency_ms = _ping_exchange()
+        except Exception:
+            connected, latency_ms = False, 0.0
+        _ping_cache["data"] = {"connected": connected, "latency_ms": latency_ms}
+        _ping_cache["ts"] = now
+
+    cached_ping = _ping_cache["data"]
+    keys_configured = cfg.exchange.has_live_credentials
+
+    # Key-Validierung (nur wenn nötig, cached 60 s)
+    keys_valid: Optional[bool] = None
+    if keys_configured and (cfg.trading.is_live or deep):
+        if _keys_cache["data"] is None or (now - _keys_cache["ts"]) > 60:
+            _keys_cache["data"] = _validate_keys()
+            _keys_cache["ts"] = now
+        keys_valid = _keys_cache["data"]
+
     return {
-        "status": "ok",
+        "status": "ok" if cached_ping["connected"] else "degraded",
         "mode": cfg.trading.mode,
         "exchange": cfg.exchange.exchange,
         "llm": cfg.llm.enabled,
+        "exchange_connected": cached_ping["connected"],
+        "latency_ms": cached_ping["latency_ms"],
+        "api_keys_configured": keys_configured,
+        "api_keys_valid": keys_valid,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
