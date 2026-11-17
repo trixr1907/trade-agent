@@ -1,0 +1,1573 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>TRADE AGENT · JARVIS TERMINAL</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════════
+   JARVIS HUD — TRADE AGENT TERMINAL
+   Self-contained: no external CDN, fonts or assets.
+   System font stack only.
+═══════════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg:        #040814;
+  --bg2:       #071020;
+  --bg3:       #0a1628;
+  --panel:     rgba(0,24,56,0.72);
+  --panel2:    rgba(0,36,72,0.55);
+  --border:    #00e5ff;
+  --border-dim:#004f6e;
+  --cyan:      #00e5ff;
+  --cyan-dim:  rgba(0,229,255,0.12);
+  --cyan-glow: rgba(0,229,255,0.35);
+  --green:     #00ff9d;
+  --green-dim: rgba(0,255,157,0.12);
+  --red:       #ff3b6b;
+  --red-dim:   rgba(255,59,107,0.12);
+  --amber:     #ffb347;
+  --amber-dim: rgba(255,179,71,0.12);
+  --text:      #c8e8f0;
+  --text-dim:  #4a7a90;
+  --mono:      "Courier New", "Lucida Console", Courier, monospace;
+  --sans:      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --radius:    8px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  overflow-x: hidden;
+}
+
+/* ── Animated background grid ── */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Scanline sweep */
+body::after {
+  content: "";
+  position: fixed;
+  left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(0,229,255,0.18), transparent);
+  animation: scanline 6s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@keyframes scanline {
+  0%   { top: -2px; opacity: 0; }
+  5%   { opacity: 1; }
+  95%  { opacity: 1; }
+  100% { top: 100vh; opacity: 0; }
+}
+
+/* Radial glow centre */
+#glow-bg {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(ellipse 60% 40% at 50% 10%, rgba(0,80,160,0.18) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+#app {
+  position: relative;
+  z-index: 2;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ══════════════════════════════════════
+   HEADER
+══════════════════════════════════════ */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--border-dim);
+  background: rgba(4,8,20,0.9);
+  backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hud-title {
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 3px;
+  color: var(--cyan);
+  text-shadow: 0 0 10px var(--cyan-glow);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.hud-title span {
+  color: var(--text-dim);
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  flex-shrink: 0;
+}
+.pulse-dot.ok     { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; }
+.pulse-dot.warn   { background: var(--amber); box-shadow: 0 0 6px var(--amber); animation: pulse 1.5s infinite; }
+.pulse-dot.error  { background: var(--red);   box-shadow: 0 0 6px var(--red);   animation: pulse 1s infinite; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+.mode-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  padding: 3px 10px;
+  border-radius: 3px;
+  border: 1px solid var(--border-dim);
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+.mode-badge.live  { color: var(--red);   border-color: var(--red);   background: var(--red-dim); }
+.mode-badge.paper { color: var(--green); border-color: var(--green); background: var(--green-dim); }
+
+#clock {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+/* ══════════════════════════════════════
+   TAB NAV
+══════════════════════════════════════ */
+.tab-nav {
+  display: flex;
+  gap: 0;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border-dim);
+  background: rgba(4,8,20,0.85);
+  backdrop-filter: blur(8px);
+  position: sticky;
+  top: 49px;
+  z-index: 90;
+  overflow-x: auto;
+}
+
+.tab-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 12px 20px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+  white-space: nowrap;
+  margin-bottom: -1px;
+}
+.tab-btn:hover  { color: var(--cyan); }
+.tab-btn.active { color: var(--cyan); border-bottom-color: var(--cyan); text-shadow: 0 0 8px var(--cyan-glow); }
+
+/* ══════════════════════════════════════
+   MAIN / PANELS
+══════════════════════════════════════ */
+main {
+  flex: 1;
+  padding: 20px 24px 40px;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* ── Glassmorphism card ── */
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  backdrop-filter: blur(16px);
+  position: relative;
+  padding: 18px 20px;
+}
+
+/* Corner brackets decoration */
+.card::before,
+.card::after {
+  content: "";
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-color: var(--cyan);
+  border-style: solid;
+}
+.card::before {
+  top: -1px; left: -1px;
+  border-width: 2px 0 0 2px;
+  border-radius: 2px 0 0 0;
+}
+.card::after {
+  bottom: -1px; right: -1px;
+  border-width: 0 2px 2px 0;
+  border-radius: 0 0 2px 0;
+}
+
+.card-title {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--cyan);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-title::before {
+  content: "//";
+  color: var(--border-dim);
+}
+
+/* ── Grid helpers ── */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; }
+
+/* ══════════════════════════════════════
+   BUTTONS
+══════════════════════════════════════ */
+.btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  border: 1px solid;
+  border-radius: 4px;
+  padding: 8px 18px;
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s, color 0.2s;
+  background: transparent;
+  white-space: nowrap;
+}
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.btn-cyan  { color: var(--cyan);  border-color: var(--cyan);  }
+.btn-cyan:not(:disabled):hover  { background: var(--cyan-dim); box-shadow: 0 0 12px var(--cyan-glow); }
+
+.btn-green { color: var(--green); border-color: var(--green); }
+.btn-green:not(:disabled):hover { background: var(--green-dim); box-shadow: 0 0 12px rgba(0,255,157,0.4); }
+
+.btn-red   { color: var(--red);   border-color: var(--red);   }
+.btn-red:not(:disabled):hover   { background: var(--red-dim);  box-shadow: 0 0 12px rgba(255,59,107,0.4); }
+
+.btn-amber { color: var(--amber); border-color: var(--amber); }
+.btn-amber:not(:disabled):hover { background: var(--amber-dim); box-shadow: 0 0 12px rgba(255,179,71,0.4); }
+
+/* ══════════════════════════════════════
+   FORM ELEMENTS
+══════════════════════════════════════ */
+.form-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin-bottom: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 100px;
+}
+
+.field label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.field input,
+.field select {
+  background: rgba(0,10,30,0.7);
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 6px 10px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  width: 100%;
+}
+.field input:focus,
+.field select:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan-glow);
+}
+
+/* ══════════════════════════════════════
+   SIGNALS TAB
+══════════════════════════════════════ */
+#tab-signals .toolbar-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin-bottom: 20px;
+}
+
+.signal-feed {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.signal-card {
+  background: var(--panel);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  backdrop-filter: blur(12px);
+  padding: 14px 16px;
+  position: relative;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.signal-card:hover {
+  border-color: var(--cyan);
+  box-shadow: 0 0 16px var(--cyan-glow);
+}
+.signal-card::before {
+  content: "";
+  position: absolute;
+  top: -1px; left: -1px;
+  width: 10px; height: 10px;
+  border-top: 2px solid var(--cyan);
+  border-left: 2px solid var(--cyan);
+  border-radius: 2px 0 0 0;
+}
+
+.signal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.signal-symbol {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: bold;
+  color: var(--cyan);
+  letter-spacing: 1px;
+}
+
+.dir-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  padding: 3px 10px;
+  border-radius: 3px;
+  font-weight: bold;
+}
+.dir-badge.buy  { color: var(--green); background: var(--green-dim); border: 1px solid var(--green); }
+.dir-badge.sell { color: var(--red);   background: var(--red-dim);   border: 1px solid var(--red);   }
+
+.signal-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 5px;
+}
+.signal-row .lbl { color: var(--text-dim); font-family: var(--mono); font-size: 10px; letter-spacing: 1px; }
+.signal-row .val { font-family: var(--mono); color: var(--text); }
+
+/* Score bar */
+.score-bar-wrap {
+  margin: 10px 0 6px;
+}
+.score-bar-label {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.score-bar-track {
+  width: 100%;
+  height: 4px;
+  background: var(--bg3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.score-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--cyan), var(--green));
+  transition: width 0.6s ease;
+}
+
+/* Proposal actions */
+.proposal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+/* ══════════════════════════════════════
+   PROPOSALS SECTION
+══════════════════════════════════════ */
+#proposals-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.proposal-card {
+  background: var(--panel2);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  transition: border-color 0.2s;
+}
+.proposal-card:hover { border-color: var(--border); }
+.proposal-card.state-approved { border-left: 3px solid var(--green); }
+.proposal-card.state-rejected { border-left: 3px solid var(--red); opacity: 0.6; }
+.proposal-card.state-executed { border-left: 3px solid var(--cyan); }
+
+.proposal-info { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+.proposal-id   { font-family: var(--mono); font-size: 10px; color: var(--text-dim); letter-spacing: 1px; }
+.proposal-sym  { font-family: var(--mono); font-size: 13px; color: var(--cyan); font-weight: bold; }
+.proposal-state {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border-dim);
+  color: var(--text-dim);
+}
+.proposal-state.pending  { color: var(--amber); border-color: var(--amber); }
+.proposal-state.approved { color: var(--green); border-color: var(--green); }
+.proposal-state.rejected { color: var(--red);   border-color: var(--red); }
+.proposal-state.executed { color: var(--cyan);  border-color: var(--cyan); }
+
+.proposal-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* ══════════════════════════════════════
+   SYSTEM LOG
+══════════════════════════════════════ */
+.log-box {
+  background: rgba(0,0,0,0.5);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 10px 14px;
+  height: 160px;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
+.log-box::-webkit-scrollbar { width: 4px; }
+.log-box::-webkit-scrollbar-track { background: transparent; }
+.log-box::-webkit-scrollbar-thumb { background: var(--border-dim); border-radius: 2px; }
+
+.log-line { margin-bottom: 2px; line-height: 1.5; }
+.log-line .ts  { color: var(--border-dim); margin-right: 6px; }
+.log-line .ok  { color: var(--green); }
+.log-line .err { color: var(--red); }
+.log-line .inf { color: var(--cyan); }
+.log-line .wrn { color: var(--amber); }
+
+/* ══════════════════════════════════════
+   BACKTEST TAB
+══════════════════════════════════════ */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.metric-cell {
+  background: var(--panel2);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  text-align: center;
+}
+
+.metric-cell .m-lbl {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.metric-cell .m-val {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: bold;
+  color: var(--cyan);
+}
+.metric-cell .m-val.good  { color: var(--green); }
+.metric-cell .m-val.bad   { color: var(--red); }
+.metric-cell .m-val.neutral { color: var(--text); }
+
+/* Canvas equity curve */
+#equity-canvas {
+  width: 100%;
+  height: 220px;
+  display: block;
+  border-radius: 4px;
+}
+
+.canvas-wrap {
+  position: relative;
+  background: rgba(0,0,0,0.4);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  overflow: hidden;
+  padding: 10px;
+}
+
+/* ══════════════════════════════════════
+   SYSTEM TAB
+══════════════════════════════════════ */
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.health-cell {
+  background: var(--panel2);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.health-cell .h-lbl {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.health-cell .h-val {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: bold;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ══════════════════════════════════════
+   SPINNER
+══════════════════════════════════════ */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-dim);
+  border-top-color: var(--cyan);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ══════════════════════════════════════
+   EMPTY / ERROR states
+══════════════════════════════════════ */
+.empty {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  padding: 24px;
+  text-align: center;
+  border: 1px dashed var(--border-dim);
+  border-radius: var(--radius);
+}
+
+.alert {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 10px 14px;
+  border-radius: 4px;
+  border-left: 3px solid;
+  margin-bottom: 14px;
+}
+.alert.ok  { border-color: var(--green); background: var(--green-dim); color: var(--green); }
+.alert.err { border-color: var(--red);   background: var(--red-dim);   color: var(--red); }
+.alert.inf { border-color: var(--cyan);  background: var(--cyan-dim);  color: var(--cyan); }
+
+/* ══════════════════════════════════════
+   RESPONSIVE
+══════════════════════════════════════ */
+@media (max-width: 640px) {
+  header       { padding: 8px 14px; }
+  main         { padding: 14px 12px 32px; }
+  .tab-nav     { padding: 0 10px; }
+  .tab-btn     { padding: 10px 12px; font-size: 10px; letter-spacing: 1px; }
+  .grid-2,
+  .grid-3      { grid-template-columns: 1fr; }
+  .signal-feed { grid-template-columns: 1fr; }
+  .hud-title   { font-size: 10px; letter-spacing: 2px; }
+}
+
+/* Scrollbar global */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border-dim); border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="glow-bg"></div>
+<div id="app">
+
+  <!-- ══════════ HEADER ══════════ -->
+  <header>
+    <div class="hud-title">
+      TRADE&nbsp;AGENT&nbsp;·&nbsp;JARVIS&nbsp;TERMINAL
+      <span>&nbsp;// v1.0</span>
+    </div>
+    <div class="header-right">
+      <div class="status-pill">
+        <div class="pulse-dot" id="hdr-dot"></div>
+        <span id="hdr-status" style="font-family:var(--mono);font-size:11px;letter-spacing:1px;">VERBINDE…</span>
+      </div>
+      <div class="mode-badge" id="hdr-mode">—</div>
+      <div id="clock">—</div>
+    </div>
+  </header>
+
+  <!-- ══════════ TABS ══════════ -->
+  <nav class="tab-nav" role="tablist">
+    <button class="tab-btn active" data-tab="tab-signals"  role="tab" aria-selected="true">▸ SIGNALE</button>
+    <button class="tab-btn"        data-tab="tab-backtest" role="tab">▸ BACKTEST</button>
+    <button class="tab-btn"        data-tab="tab-system"   role="tab">▸ SYSTEM</button>
+  </nav>
+
+  <main>
+
+    <!-- ══════════════════════════════════
+         TAB 1: SIGNALE
+    ══════════════════════════════════ -->
+    <div id="tab-signals" class="tab-panel active">
+
+      <!-- Toolbar -->
+      <div class="card" style="margin-bottom:18px;">
+        <div class="card-title">SCAN-KONFIGURATION</div>
+        <div class="form-row">
+          <div class="field" style="flex:2;min-width:160px;">
+            <label>Symbole (kommagetrennt)</label>
+            <input type="text" id="scan-symbols" value="BTC/USDT,ETH/USDT" placeholder="BTC/USDT,ETH/USDT"/>
+          </div>
+          <div class="field">
+            <label>Timeframe</label>
+            <select id="scan-tf">
+              <option>1h</option><option>4h</option><option>1d</option><option>15m</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Bars</label>
+            <input type="number" id="scan-limit" value="120" min="30" max="1000" style="width:80px;"/>
+          </div>
+          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+            <button class="btn btn-cyan" id="btn-scan">▶ SCAN STARTEN</button>
+            <button class="btn btn-amber" id="btn-load-proposals">↻ ANTRÄGE LADEN</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Alert area -->
+      <div id="scan-alert" style="display:none;"></div>
+
+      <!-- Signal cards -->
+      <div class="card" style="margin-bottom:18px;">
+        <div class="card-title">SIGNAL-FLIESSBAND</div>
+        <div id="signal-feed" class="signal-feed">
+          <div class="empty">— Kein Scan aktiv. «SCAN STARTEN» drücken. —</div>
+        </div>
+      </div>
+
+      <!-- Proposals -->
+      <div class="card" style="margin-bottom:18px;">
+        <div class="card-title">ANTRÄGE / WORKFLOW</div>
+        <div id="proposals-list">
+          <div class="empty">— Keine Anträge geladen. —</div>
+        </div>
+      </div>
+
+      <!-- Log -->
+      <div class="card">
+        <div class="card-title" style="justify-content:space-between;">
+          <span>SYSTEM-LOG</span>
+          <button class="btn btn-cyan" id="btn-clear-log" style="padding:3px 10px;font-size:9px;">LÖSCHEN</button>
+        </div>
+        <div class="log-box" id="signal-log"></div>
+      </div>
+
+    </div><!-- /tab-signals -->
+
+    <!-- ══════════════════════════════════
+         TAB 2: BACKTEST
+    ══════════════════════════════════ -->
+    <div id="tab-backtest" class="tab-panel">
+
+      <div class="card" style="margin-bottom:18px;">
+        <div class="card-title">WALK-FORWARD-BACKTEST</div>
+        <div class="form-row">
+          <div class="field" style="flex:2;min-width:160px;">
+            <label>Symbole (kommagetrennt)</label>
+            <input type="text" id="bt-symbols" value="BTC/USDT,ETH/USDT"/>
+          </div>
+          <div class="field">
+            <label>Timeframe</label>
+            <select id="bt-tf">
+              <option>1h</option><option>4h</option><option>1d</option><option>15m</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Bars</label>
+            <input type="number" id="bt-limit" value="500" min="100" max="5000" style="width:80px;"/>
+          </div>
+          <div class="field">
+            <label>Folds</label>
+            <input type="number" id="bt-folds" value="5" min="2" max="20" style="width:70px;"/>
+          </div>
+          <div class="field">
+            <label>IS-Anteil %</label>
+            <input type="number" id="bt-is" value="70" min="30" max="90" style="width:75px;"/>
+          </div>
+          <div class="field">
+            <label>Min-Score</label>
+            <input type="number" id="bt-minscore" value="50" min="0" max="100" style="width:75px;"/>
+          </div>
+          <div style="display:flex;align-items:flex-end;">
+            <button class="btn btn-cyan" id="btn-backtest">▶ BACKTEST STARTEN</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="bt-alert" style="display:none;"></div>
+      <div id="bt-results" style="display:none;">
+
+        <!-- Symbol selector for multi-symbol results -->
+        <div style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <span style="font-family:var(--mono);font-size:10px;letter-spacing:2px;color:var(--text-dim);">SYMBOL:</span>
+          <div id="bt-symbol-tabs" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px;">
+          <div class="card-title">METRIKEN</div>
+          <div class="metrics-grid" id="bt-metrics"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">EQUITY-KURVE (Fold-Verlauf)</div>
+          <div class="canvas-wrap">
+            <canvas id="equity-canvas"></canvas>
+          </div>
+        </div>
+
+      </div>
+
+    </div><!-- /tab-backtest -->
+
+    <!-- ══════════════════════════════════
+         TAB 3: SYSTEM
+    ══════════════════════════════════ -->
+    <div id="tab-system" class="tab-panel">
+
+      <div style="display:flex;gap:12px;margin-bottom:18px;flex-wrap:wrap;align-items:center;">
+        <button class="btn btn-cyan" id="btn-health">↻ HEALTH PRÜFEN</button>
+        <button class="btn btn-amber" id="btn-health-deep">↻ DEEP CHECK</button>
+        <span id="sys-last-check" style="font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:1px;"></span>
+      </div>
+
+      <div id="sys-alert" style="display:none;margin-bottom:14px;"></div>
+
+      <div class="card" style="margin-bottom:18px;">
+        <div class="card-title">SYSTEM-STATUS</div>
+        <div class="health-grid" id="health-grid">
+          <div class="empty" style="grid-column:1/-1;">— Health noch nicht abgerufen. —</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">AKTIVITÄTS-LOG</div>
+        <div class="log-box" id="sys-log"></div>
+      </div>
+
+    </div><!-- /tab-system -->
+
+  </main>
+</div><!-- /app -->
+
+<script>
+"use strict";
+
+/* ══════════════════════════════════════════════════════════════════
+   UTILS
+══════════════════════════════════════════════════════════════════ */
+const API = "";   // same-origin; relative URLs
+
+async function apiFetch(path, opts = {}) {
+  const r = await fetch(API + path, {
+    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+    ...opts,
+  });
+  if (!r.ok) {
+    const txt = await r.text().catch(() => r.statusText);
+    throw new Error(`HTTP ${r.status}: ${txt}`);
+  }
+  return r.json();
+}
+
+function ts() {
+  return new Date().toLocaleTimeString("de-DE", { hour12: false });
+}
+
+function appendLog(boxId, msg, cls = "") {
+  const box = document.getElementById(boxId);
+  if (!box) return;
+  const line = document.createElement("div");
+  line.className = "log-line";
+  line.innerHTML = `<span class="ts">[${ts()}]</span><span class="${cls}">${msg}</span>`;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+
+function showAlert(id, msg, cls) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = `alert ${cls}`;
+  el.textContent = msg;
+  el.style.display = "block";
+  setTimeout(() => { el.style.display = "none"; }, 6000);
+}
+
+function pfDisplay(val) {
+  if (val === null || val === undefined || val === "null") return "—";
+  const n = Number(val);
+  if (!isFinite(n) || isNaN(n)) return "—";
+  return n.toFixed(2);
+}
+
+function pct(val) {
+  if (val === null || val === undefined) return "—";
+  return (Number(val) * 100).toFixed(1) + "%";
+}
+
+function fmt2(val) {
+  if (val === null || val === undefined) return "—";
+  return Number(val).toFixed(2);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   CLOCK
+══════════════════════════════════════════════════════════════════ */
+function updateClock() {
+  const el = document.getElementById("clock");
+  if (el) el.textContent = new Date().toLocaleString("de-DE", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  });
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+/* ══════════════════════════════════════════════════════════════════
+   TABS
+══════════════════════════════════════════════════════════════════ */
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => { b.classList.remove("active"); b.setAttribute("aria-selected","false"); });
+    document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    btn.setAttribute("aria-selected","true");
+    document.getElementById(btn.dataset.tab).classList.add("active");
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════
+   HEALTH (header + system tab)
+══════════════════════════════════════════════════════════════════ */
+async function fetchHealth(deep = false) {
+  try {
+    const data = await apiFetch(`/health${deep ? "?deep=1" : ""}`);
+    updateHeaderHealth(data);
+    return data;
+  } catch (e) {
+    updateHeaderHealth(null);
+    return null;
+  }
+}
+
+function updateHeaderHealth(data) {
+  const dot    = document.getElementById("hdr-dot");
+  const status = document.getElementById("hdr-status");
+  const mode   = document.getElementById("hdr-mode");
+  if (!data) {
+    dot.className   = "pulse-dot error";
+    status.textContent = "OFFLINE";
+    mode.textContent   = "—";
+    return;
+  }
+  const ok = data.exchange_connected;
+  dot.className      = ok ? "pulse-dot ok" : "pulse-dot warn";
+  status.textContent = ok ? `ONLINE · ${data.latency_ms}ms` : "DEGRADED";
+  mode.textContent   = (data.mode || "—").toUpperCase();
+  mode.className     = "mode-badge " + (data.mode === "live" ? "live" : "paper");
+}
+
+function renderHealthGrid(data) {
+  const grid = document.getElementById("health-grid");
+  if (!data) {
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">— Health-Abruf fehlgeschlagen. —</div>`;
+    return;
+  }
+
+  function cell(lbl, val, dotClass) {
+    return `<div class="health-cell">
+      <div class="h-lbl">${lbl}</div>
+      <div class="h-val">
+        ${dotClass ? `<div class="pulse-dot ${dotClass}"></div>` : ""}
+        ${val}
+      </div>
+    </div>`;
+  }
+
+  const exchOk = data.exchange_connected;
+  const keysOk = data.api_keys_valid;
+  const keysCfg = data.api_keys_configured;
+
+  let keyStatus, keyDot;
+  if (keysOk === true)       { keyStatus = "GÜLTIG";     keyDot = "ok"; }
+  else if (keysOk === false) { keyStatus = "UNGÜLTIG";   keyDot = "error"; }
+  else if (keysCfg)          { keyStatus = "NICHT GEPR.";keyDot = ""; }
+  else                       { keyStatus = "NICHT KONFIGURIERT"; keyDot = "warn"; }
+
+  grid.innerHTML =
+    cell("VERBINDUNG",   exchOk ? "VERBUNDEN" : "GETRENNT",   exchOk ? "ok" : "error") +
+    cell("LATENZ",       data.latency_ms != null ? `${data.latency_ms} ms` : "—", "") +
+    cell("EXCHANGE",     (data.exchange || "—").toUpperCase(), "") +
+    cell("API-KEYS",     keyStatus, keyDot) +
+    cell("LLM",          data.llm ? "AKTIV" : "INAKTIV", data.llm ? "ok" : "") +
+    cell("MODUS",        (data.mode || "—").toUpperCase(), data.mode === "live" ? "warn" : "ok") +
+    cell("STATUS",       (data.status || "—").toUpperCase(), data.status === "ok" ? "ok" : "warn");
+}
+
+document.getElementById("btn-health").addEventListener("click", async () => {
+  appendLog("sys-log", "Health-Abfrage gestartet…", "inf");
+  const data = await fetchHealth(false);
+  renderHealthGrid(data);
+  const el = document.getElementById("sys-last-check");
+  if (el) el.textContent = `Letzter Check: ${ts()}`;
+  if (data) {
+    appendLog("sys-log", `Status: ${data.status} · Exchange: ${data.exchange_connected ? "verbunden" : "getrennt"} · ${data.latency_ms}ms`, data.status === "ok" ? "ok" : "wrn");
+  } else {
+    appendLog("sys-log", "Health-Abfrage fehlgeschlagen.", "err");
+    showAlert("sys-alert", "Health-Abfrage fehlgeschlagen.", "err");
+  }
+});
+
+document.getElementById("btn-health-deep").addEventListener("click", async () => {
+  appendLog("sys-log", "Deep Health-Abfrage gestartet (Key-Validierung)…", "inf");
+  const data = await fetchHealth(true);
+  renderHealthGrid(data);
+  const el = document.getElementById("sys-last-check");
+  if (el) el.textContent = `Letzter Deep-Check: ${ts()}`;
+  if (data) {
+    const keyInfo = data.api_keys_valid === true ? "Keys gültig" :
+                    data.api_keys_valid === false ? "Keys ungültig" : "Keys nicht geprüft";
+    appendLog("sys-log", `Deep-Check: ${data.status} · ${keyInfo} · LLM: ${data.llm ? "aktiv" : "inaktiv"}`, data.status === "ok" ? "ok" : "wrn");
+    showAlert("sys-alert", `Deep-Check abgeschlossen: ${keyInfo}`, data.api_keys_valid === false ? "err" : "ok");
+  } else {
+    appendLog("sys-log", "Deep-Check fehlgeschlagen.", "err");
+    showAlert("sys-alert", "Deep-Check fehlgeschlagen.", "err");
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════════
+   SCAN
+══════════════════════════════════════════════════════════════════ */
+function renderSignalCard(sig) {
+  const dir = (sig.direction || "").toLowerCase();
+  const score = sig.score ?? sig.signal_score ?? 0;
+  const scoreBar = Math.min(100, Math.max(0, score));
+  return `
+    <div class="signal-card">
+      <div class="signal-header">
+        <span class="signal-symbol">${sig.symbol || "—"}</span>
+        <span class="dir-badge ${dir === "buy" ? "buy" : "sell"}">${dir === "buy" ? "BUY" : "SELL"}</span>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar-label">
+          <span>SCORE</span><span style="color:var(--cyan)">${score}</span>
+        </div>
+        <div class="score-bar-track">
+          <div class="score-bar-fill" style="width:${scoreBar}%"></div>
+        </div>
+      </div>
+      <div class="signal-row">
+        <span class="lbl">PREIS</span>
+        <span class="val">${sig.price != null ? Number(sig.price).toFixed(2) : "—"}</span>
+      </div>
+      <div class="signal-row">
+        <span class="lbl">STOP</span>
+        <span class="val" style="color:var(--red)">${sig.stop_loss != null ? Number(sig.stop_loss).toFixed(2) : "—"}</span>
+      </div>
+      <div class="signal-row">
+        <span class="lbl">ZIEL</span>
+        <span class="val" style="color:var(--green)">${sig.take_profit != null ? Number(sig.take_profit).toFixed(2) : "—"}</span>
+      </div>
+      <div class="signal-row">
+        <span class="lbl">POSITION</span>
+        <span class="val">${sig.position_size != null ? Number(sig.position_size).toFixed(4) : "—"}</span>
+      </div>
+    </div>`;
+}
+
+document.getElementById("btn-scan").addEventListener("click", async () => {
+  const symbolsRaw = document.getElementById("scan-symbols").value.trim();
+  const tf         = document.getElementById("scan-tf").value;
+  const limit      = parseInt(document.getElementById("scan-limit").value, 10);
+  const symbols    = symbolsRaw.split(",").map(s => s.trim()).filter(Boolean);
+
+  const btn = document.getElementById("btn-scan");
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner"></span> SCAN LÄUFT…`;
+  appendLog("signal-log", `Scan gestartet: ${symbols.join(", ")} [${tf}/${limit} Bars]`, "inf");
+
+  const feed = document.getElementById("signal-feed");
+  feed.innerHTML = `<div class="empty"><span class="spinner"></span> Scan läuft…</div>`;
+
+  try {
+    const data = await apiFetch("/scan", {
+      method: "POST",
+      body: JSON.stringify({ symbols, timeframe: tf, limit }),
+    });
+    const sigs = data.signals || [];
+    if (sigs.length === 0) {
+      feed.innerHTML = `<div class="empty">— Keine Signale über Schwellwert gefunden. —</div>`;
+      appendLog("signal-log", "Scan abgeschlossen: keine Signale.", "wrn");
+    } else {
+      feed.innerHTML = sigs.map(renderSignalCard).join("");
+      appendLog("signal-log", `Scan abgeschlossen: ${sigs.length} Signal(e) gefunden.`, "ok");
+    }
+    if (data.error) appendLog("signal-log", `Warnung: ${data.error}`, "wrn");
+    // Auto-refresh proposals
+    await loadProposals();
+  } catch (e) {
+    feed.innerHTML = `<div class="empty">— Scan fehlgeschlagen: ${e.message} —</div>`;
+    appendLog("signal-log", `Scan-Fehler: ${e.message}`, "err");
+    showAlert("scan-alert", `Scan fehlgeschlagen: ${e.message}`, "err");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = "▶ SCAN STARTEN";
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════════
+   PROPOSALS
+══════════════════════════════════════════════════════════════════ */
+// Track which proposals have been approved (client-side, fail-closed)
+const approvedSet = new Set();
+
+async function loadProposals() {
+  try {
+    const data = await apiFetch("/proposals");
+    renderProposals(data.proposals || []);
+    appendLog("signal-log", `${(data.proposals || []).length} Antrag/Anträge geladen.`, "inf");
+  } catch (e) {
+    appendLog("signal-log", `Anträge laden fehlgeschlagen: ${e.message}`, "err");
+  }
+}
+
+function renderProposals(proposals) {
+  const list = document.getElementById("proposals-list");
+  if (!proposals.length) {
+    list.innerHTML = `<div class="empty">— Keine offenen Anträge. —</div>`;
+    return;
+  }
+
+  list.innerHTML = proposals.map(p => {
+    const state  = (p.state || "pending").toLowerCase();
+    const isApproved = state === "approved" || approvedSet.has(p.id);
+    const isPending  = state === "pending";
+    const isDone     = state === "executed" || state === "rejected";
+
+    const sym    = p.signal?.symbol || p.symbol || "—";
+    const dir    = (p.signal?.direction || "").toUpperCase();
+    const price  = p.signal?.price != null ? Number(p.signal.price).toFixed(2) : "—";
+
+    return `<div class="proposal-card state-${state}" data-id="${p.id}">
+      <div class="proposal-info">
+        <span class="proposal-id">#${(p.id || "").slice(0,8)}</span>
+        <span class="proposal-sym">${sym}</span>
+        <span style="font-family:var(--mono);font-size:12px;color:${dir==='BUY'?'var(--green)':'var(--red)'};">${dir}</span>
+        <span style="font-family:var(--mono);font-size:12px;color:var(--text);">@ ${price}</span>
+        <span class="proposal-state ${state}">${state.toUpperCase()}</span>
+      </div>
+      <div class="proposal-btns">
+        ${isPending ? `
+          <button class="btn btn-green btn-approve" data-id="${p.id}" style="padding:5px 12px;font-size:9px;">✔ FREIGEBEN</button>
+          <button class="btn btn-red btn-reject"  data-id="${p.id}" style="padding:5px 12px;font-size:9px;">✘ ABLEHNEN</button>` : ""}
+        ${isApproved && state !== "executed" ? `
+          <button class="btn btn-cyan btn-execute" data-id="${p.id}" style="padding:5px 12px;font-size:9px;">▶ AUSFÜHREN</button>` : ""}
+        ${isDone ? `<span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:1px;">${state.toUpperCase()}</span>` : ""}
+      </div>
+    </div>`;
+  }).join("");
+
+  // Wire buttons
+  list.querySelectorAll(".btn-approve").forEach(btn => {
+    btn.addEventListener("click", () => approveProposal(btn.dataset.id));
+  });
+  list.querySelectorAll(".btn-reject").forEach(btn => {
+    btn.addEventListener("click", () => rejectProposal(btn.dataset.id));
+  });
+  list.querySelectorAll(".btn-execute").forEach(btn => {
+    btn.addEventListener("click", () => executeProposal(btn.dataset.id));
+  });
+}
+
+async function approveProposal(id) {
+  try {
+    const data = await apiFetch("/approve", {
+      method: "POST",
+      body: JSON.stringify({ proposal_id: id, approved_by: "operator" }),
+    });
+    approvedSet.add(id);
+    appendLog("signal-log", `Antrag ${id.slice(0,8)} freigegeben.`, "ok");
+    showAlert("scan-alert", `Antrag freigegeben.`, "ok");
+    await loadProposals();
+  } catch (e) {
+    appendLog("signal-log", `Freigabe fehlgeschlagen: ${e.message}`, "err");
+    showAlert("scan-alert", `Freigabe fehlgeschlagen: ${e.message}`, "err");
+  }
+}
+
+async function rejectProposal(id) {
+  try {
+    await apiFetch("/reject", {
+      method: "POST",
+      body: JSON.stringify({ proposal_id: id, reason: "Manuell abgelehnt" }),
+    });
+    approvedSet.delete(id);
+    appendLog("signal-log", `Antrag ${id.slice(0,8)} abgelehnt.`, "wrn");
+    showAlert("scan-alert", `Antrag abgelehnt.`, "inf");
+    await loadProposals();
+  } catch (e) {
+    appendLog("signal-log", `Ablehnen fehlgeschlagen: ${e.message}`, "err");
+    showAlert("scan-alert", `Ablehnen fehlgeschlagen: ${e.message}`, "err");
+  }
+}
+
+async function executeProposal(id) {
+  // Fail-closed: only execute if we have an approved record
+  if (!approvedSet.has(id)) {
+    const freshData = await apiFetch("/proposals").catch(() => null);
+    if (freshData) {
+      const p = (freshData.proposals || []).find(x => x.id === id);
+      if (!p || (p.state || "").toLowerCase() !== "approved") {
+        appendLog("signal-log", `Ausführung blockiert: Antrag ${id.slice(0,8)} nicht freigegeben.`, "err");
+        showAlert("scan-alert", "Ausführung blockiert: Antrag nicht freigegeben.", "err");
+        return;
+      }
+      approvedSet.add(id);
+    } else {
+      appendLog("signal-log", `Ausführung blockiert: Status konnte nicht verifiziert werden.`, "err");
+      showAlert("scan-alert", "Ausführung blockiert: Status-Prüfung fehlgeschlagen.", "err");
+      return;
+    }
+  }
+  try {
+    const result = await apiFetch("/execute", {
+      method: "POST",
+      body: JSON.stringify({ proposal_id: id }),
+    });
+    appendLog("signal-log", `Antrag ${id.slice(0,8)} ausgeführt.`, "ok");
+    showAlert("scan-alert", `Antrag ausgeführt.`, "ok");
+    await loadProposals();
+  } catch (e) {
+    appendLog("signal-log", `Ausführung fehlgeschlagen: ${e.message}`, "err");
+    showAlert("scan-alert", `Ausführung fehlgeschlagen: ${e.message}`, "err");
+  }
+}
+
+document.getElementById("btn-load-proposals").addEventListener("click", loadProposals);
+
+/* ══════════════════════════════════════════════════════════════════
+   BACKTEST
+══════════════════════════════════════════════════════════════════ */
+let btData = {};
+let btActiveSym = "";
+
+document.getElementById("btn-backtest").addEventListener("click", async () => {
+  const symbolsRaw = document.getElementById("bt-symbols").value.trim();
+  const tf         = document.getElementById("bt-tf").value;
+  const limit      = parseInt(document.getElementById("bt-limit").value, 10);
+  const folds      = parseInt(document.getElementById("bt-folds").value, 10);
+  const is_ratio   = parseInt(document.getElementById("bt-is").value, 10) / 100;
+  const min_score  = parseInt(document.getElementById("bt-minscore").value, 10);
+  const symbols    = symbolsRaw.split(",").map(s => s.trim()).filter(Boolean);
+
+  const btn = document.getElementById("btn-backtest");
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner"></span> LÄUFT…`;
+
+  document.getElementById("bt-results").style.display = "none";
+  const alertEl = document.getElementById("bt-alert");
+  alertEl.style.display = "none";
+
+  try {
+    const data = await apiFetch("/backtest", {
+      method: "POST",
+      body: JSON.stringify({ symbols, timeframe: tf, limit, n_folds: folds, is_ratio, min_signal_score: min_score }),
+    });
+    btData = data;
+    const syms = Object.keys(data);
+    if (!syms.length) {
+      showAlert("bt-alert", "Backtest lieferte keine Ergebnisse.", "err");
+      return;
+    }
+    renderBtSymbolTabs(syms);
+    selectBtSymbol(syms[0]);
+    document.getElementById("bt-results").style.display = "block";
+  } catch (e) {
+    alertEl.className = "alert err";
+    alertEl.textContent = `Backtest fehlgeschlagen: ${e.message}`;
+    alertEl.style.display = "block";
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = "▶ BACKTEST STARTEN";
+  }
+});
+
+function renderBtSymbolTabs(syms) {
+  const wrap = document.getElementById("bt-symbol-tabs");
+  wrap.innerHTML = syms.map(s =>
+    `<button class="btn btn-cyan bt-sym-tab" data-sym="${s}" style="padding:4px 12px;font-size:10px;">${s}</button>`
+  ).join("");
+  wrap.querySelectorAll(".bt-sym-tab").forEach(btn => {
+    btn.addEventListener("click", () => selectBtSymbol(btn.dataset.sym));
+  });
+}
+
+function selectBtSymbol(sym) {
+  btActiveSym = sym;
+  document.querySelectorAll(".bt-sym-tab").forEach(b => {
+    b.style.background = b.dataset.sym === sym ? "var(--cyan-dim)" : "";
+    b.style.boxShadow  = b.dataset.sym === sym ? "0 0 10px var(--cyan-glow)" : "";
+  });
+  const res = btData[sym];
+  if (!res) return;
+  if (res.error) {
+    document.getElementById("bt-metrics").innerHTML =
+      `<div class="empty" style="grid-column:1/-1;color:var(--red);">Fehler: ${res.error}</div>`;
+    clearEquityCanvas();
+    return;
+  }
+  renderMetrics(res);
+  renderEquityCurve(res);
+}
+
+function renderMetrics(res) {
+  const grid = document.getElementById("bt-metrics");
+
+  function cell(lbl, val, cls) {
+    return `<div class="metric-cell">
+      <div class="m-lbl">${lbl}</div>
+      <div class="m-val ${cls || ""}">${val}</div>
+    </div>`;
+  }
+
+  const sharpe  = fmt2(res.oos_sharpe);
+  const sortino = fmt2(res.oos_sortino);
+  const wr      = pct(res.oos_win_rate);
+  const dd      = res.oos_max_drawdown_pct != null ? fmt2(res.oos_max_drawdown_pct) + "%" : "—";
+  const pf      = pfDisplay(res.oos_profit_factor);
+  const trades  = res.oos_n_trades != null ? res.oos_n_trades : "—";
+  const cost    = res.oos_cost_usd != null ? "$" + fmt2(res.oos_cost_usd) : "—";
+  const dsr     = fmt2(res.dsr);
+  const dsrSig  = res.dsr_significant ? "JA" : "NEIN";
+  const folds   = res.n_folds != null ? res.n_folds : "—";
+  const bars    = res.total_bars != null ? res.total_bars : "—";
+
+  const sharpeCls  = Number(res.oos_sharpe) > 1 ? "good" : Number(res.oos_sharpe) < 0 ? "bad" : "neutral";
+  const sortinoCls = Number(res.oos_sortino) > 1 ? "good" : Number(res.oos_sortino) < 0 ? "bad" : "neutral";
+  const wrCls      = Number(res.oos_win_rate) > 0.5 ? "good" : Number(res.oos_win_rate) < 0.4 ? "bad" : "neutral";
+  const ddCls      = Number(res.oos_max_drawdown_pct) > 20 ? "bad" : "neutral";
+  const dsrCls     = res.dsr_significant ? "good" : "neutral";
+
+  grid.innerHTML =
+    cell("SHARPE", sharpe, sharpeCls) +
+    cell("SORTINO", sortino, sortinoCls) +
+    cell("WIN-RATE", wr, wrCls) +
+    cell("MAX DD", dd, ddCls) +
+    cell("PROFIT-FACTOR", pf, pf === "—" ? "neutral" : Number(pf) > 1 ? "good" : "bad") +
+    cell("TRADES", trades, "neutral") +
+    cell("KOSTEN", cost, "neutral") +
+    cell("DSR", dsr, dsrCls) +
+    cell("DSR SIGNIF.", dsrSig, res.dsr_significant ? "good" : "neutral") +
+    cell("FOLDS", folds, "neutral") +
+    cell("BARS GESAMT", bars, "neutral");
+}
+
+/* ── Canvas Equity Curve ── */
+function clearEquityCanvas() {
+  const canvas = document.getElementById("equity-canvas");
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.font = "12px Courier New";
+  ctx.fillStyle = "rgba(0,229,255,0.3)";
+  ctx.textAlign = "center";
+  ctx.fillText("Keine Daten", canvas.width / 2, canvas.height / 2);
+}
+
+function renderEquityCurve(res) {
+  const canvas = document.getElementById("equity-canvas");
+  const wrap   = canvas.parentElement;
+
+  // Set canvas size from container
+  const W = wrap.clientWidth - 20;
+  const H = 220;
+  canvas.width  = W;
+  canvas.height = H;
+
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, W, H);
+
+  const folds = res.folds;
+  if (!folds || !folds.length) {
+    clearEquityCanvas();
+    return;
+  }
+
+  // Build a combined equity series from folds
+  // Each fold has oos_trades: list of SimTrade with pnl_r
+  // We accumulate cumulative R across all folds in OOS order
+  const FOLD_COLORS = [
+    "#00e5ff","#00ff9d","#ffb347","#ff3b6b","#b47cff",
+    "#00cfff","#80ffce","#ffd17c","#ff7ca0","#d4a0ff",
+  ];
+
+  const PAD = { top: 20, right: 24, bottom: 36, left: 54 };
+  const plotW = W - PAD.left - PAD.right;
+  const plotH = H - PAD.top  - PAD.bottom;
+
+  // Collect points per fold
+  let allPoints = []; // {foldIdx, cumR}
+  let cumR = 0;
+  allPoints.push({ foldIdx: -1, cumR: 0 });
+
+  folds.forEach((fold, fi) => {
+    const trades = fold.oos_trades || [];
+    trades.forEach(t => {
+      cumR += (t.pnl_r || 0);
+      allPoints.push({ foldIdx: fi, cumR });
+    });
+  });
+
+  if (allPoints.length <= 1) {
+    ctx.font = "11px Courier New";
+    ctx.fillStyle = "rgba(0,229,255,0.4)";
+    ctx.textAlign = "center";
+    ctx.fillText("— Keine Trade-Daten in Folds —", W / 2, H / 2);
+    return;
+  }
+
+  const vals = allPoints.map(p => p.cumR);
+  const minV = Math.min(0, ...vals);
+  const maxV = Math.max(0, ...vals);
+  const range = maxV - minV || 1;
+
+  function xOf(i) { return PAD.left + (i / (allPoints.length - 1)) * plotW; }
+  function yOf(v) { return PAD.top + (1 - (v - minV) / range) * plotH; }
+
+  // Grid lines
+  ctx.strokeStyle = "rgba(0,229,255,0.07)";
+  ctx.lineWidth = 1;
+  const ySteps = 4;
+  for (let i = 0; i <= ySteps; i++) {
+    const v  = minV + (range / ySteps) * i;
+    const yp = yOf(v);
+    ctx.beginPath();
+    ctx.moveTo(PAD.left, yp);
+    ctx.lineTo(PAD.left + plotW, yp);
+    ctx.stroke();
+    ctx.font = "9px Courier New";
+    ctx.fillStyle = "rgba(0,229,255,0.4)";
+    ctx.textAlign = "right";
+    ctx.fillText(v.toFixed(1) + "R", PAD.left - 4, yp + 3);
+  }
+
+  // Zero line
+  if (minV < 0 && maxV > 0) {
+    ctx.strokeStyle = "rgba(255,255,255,0.15)";
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(PAD.left, yOf(0));
+    ctx.lineTo(PAD.left + plotW, yOf(0));
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Draw equity line, coloured per fold
+  let prevIdx = 0;
+  let prevFold = allPoints[0].foldIdx;
+
+  for (let i = 1; i < allPoints.length; i++) {
+    const cur = allPoints[i];
+    if (cur.foldIdx !== prevFold || i === allPoints.length - 1) {
+      // Draw segment
+      const color = FOLD_COLORS[(prevFold < 0 ? 0 : prevFold) % FOLD_COLORS.length];
+      ctx.beginPath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.8;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 6;
+      for (let j = prevIdx; j <= i && j < allPoints.length; j++) {
+        const px = xOf(j), py = yOf(allPoints[j].cumR);
+        j === prevIdx ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      prevFold = cur.foldIdx;
+      prevIdx  = i;
+    }
+  }
+
+  // X-axis fold labels
+  const foldIndices = [];
+  let lastFold = -2;
+  allPoints.forEach((p, i) => {
+    if (p.foldIdx !== lastFold && p.foldIdx >= 0) {
+      foldIndices.push({ i, fi: p.foldIdx });
+      lastFold = p.foldIdx;
+    }
+  });
+  foldIndices.forEach(({ i, fi }) => {
+    const x = xOf(i);
+    ctx.strokeStyle = "rgba(0,229,255,0.15)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 4]);
+    ctx.beginPath();
+    ctx.moveTo(x, PAD.top);
+    ctx.lineTo(x, PAD.top + plotH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = "9px Courier New";
+    ctx.fillStyle = FOLD_COLORS[fi % FOLD_COLORS.length];
+    ctx.textAlign = "left";
+    ctx.fillText(`F${fi + 1}`, x + 3, PAD.top + plotH + 14);
+  });
+
+  // Axes
+  ctx.strokeStyle = "rgba(0,229,255,0.3)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(PAD.left, PAD.top);
+  ctx.lineTo(PAD.left, PAD.top + plotH);
+  ctx.lineTo(PAD.left + plotW, PAD.top + plotH);
+  ctx.stroke();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   LOG CLEAR
+══════════════════════════════════════════════════════════════════ */
+document.getElementById("btn-clear-log").addEventListener("click", () => {
+  const box = document.getElementById("signal-log");
+  if (box) box.innerHTML = "";
+});
+
+/* ══════════════════════════════════════════════════════════════════
+   INIT: auto health check on load
+══════════════════════════════════════════════════════════════════ */
+(async () => {
+  const data = await fetchHealth(false);
+  if (data) {
+    appendLog("signal-log", `System online · ${data.exchange} · Modus: ${data.mode}`, "ok");
+    appendLog("sys-log",    `Health-Init: ${data.status} · Latenz: ${data.latency_ms}ms`, "ok");
+  } else {
+    appendLog("signal-log", "System nicht erreichbar beim Start.", "err");
+    appendLog("sys-log",    "Health-Init fehlgeschlagen.", "err");
+  }
+})();
+</script>
+</body>
+</html>

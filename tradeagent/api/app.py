@@ -76,7 +76,7 @@ class BacktestRequest(BaseModel):
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard() -> HTMLResponse:
-    html = Path(__file__).parent.joinpath("web").joinpath("dashboard.html")
+    html = Path(__file__).parent.joinpath("web").joinpath("dashboard_jarvis.html")
     return HTMLResponse(html.read_text(encoding="utf-8"))
 
 

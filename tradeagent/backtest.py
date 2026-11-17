@@ -223,7 +223,21 @@ class FoldMetrics:
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
         d["trades"] = [t.to_dict() for t in self.trades]
+        # inf ist kein gültiges JSON — None mappen; Dashboard zeigt None als "–"
+        if d.get("profit_factor") is not None and math.isinf(d["profit_factor"]):
+            d["profit_factor"] = None
         return d
+
+    def pf_display(self) -> str:
+        """Gibt profit_factor als lesbaren String zurück (inf → '–')."""
+        return _pf_display(self.profit_factor)
+
+
+def _pf_display(pf: float) -> str:
+    """Formatiert profit_factor für Dashboard/Summary. inf → '–'."""
+    if math.isinf(pf):
+        return "–"
+    return f"{pf:.2f}"
 
 
 def _compute_metrics(
@@ -250,8 +264,14 @@ def _compute_metrics(
     wins = pnl_r[pnl_r > 0]
     losses = pnl_r[pnl_r <= 0]
     gross_profit = float(np.sum(wins)) if len(wins) > 0 else 0.0
-    gross_loss = float(abs(np.sum(losses))) if len(losses) > 0 else 1e-9
-    profit_factor = gross_profit / gross_loss
+    gross_loss = float(abs(np.sum(losses))) if len(losses) > 0 else 0.0
+
+    if gross_loss > 0:
+        profit_factor = gross_profit / gross_loss
+    elif gross_profit > 0:
+        profit_factor = float("inf")  # Nur Gewinne, keine Verlust-Trades
+    else:
+        profit_factor = 0.0           # Kein Gewinn, kein Verlust
 
     if len(pnl_r) < 2:
         return FoldMetrics(
@@ -384,7 +404,6 @@ class BacktestResult:
     oos_win_rate: float
     oos_total_r: float
     oos_max_drawdown_pct: float
-    oos_profit_factor: float
     oos_n_trades: int
     oos_cost_usd: float
     # Cost-Modell-Parameter (für Nachvollziehbarkeit im Report)
@@ -392,6 +411,7 @@ class BacktestResult:
     cost_slippage_bps: float
     dsr: float
     dsr_significant: bool
+    oos_profit_factor: float = 0.0
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> Dict[str, Any]:
@@ -409,7 +429,7 @@ class BacktestResult:
             f"Sharpe  : {self.oos_sharpe:.3f}",
             f"Sortino : {self.oos_sortino:.3f}",
             f"MaxDD   : {self.oos_max_drawdown_pct:.1f}%",
-            f"Profit F: {self.oos_profit_factor:.2f}",
+            f"Profit F: {_pf_display(self.oos_profit_factor)}",
             f"Kosten  : ${self.oos_cost_usd:.2f}  "
             f"(Fee {self.cost_taker_fee*100:.2f}% + {self.cost_slippage_bps:.0f} bps Slippage)",
             f"DSR     : {self.dsr:.4f} "
@@ -526,7 +546,12 @@ def run_walk_forward(
     losses_all = all_pnl_r[all_pnl_r <= 0]
     gp = float(np.sum(wins_all)) if len(wins_all) > 0 else 0.0
     gl = float(abs(np.sum(losses_all))) if len(losses_all) > 0 else 1e-9
-    oos_profit_factor = gp / gl
+    if gl > 0:
+        oos_profit_factor = gp / gl
+    elif gp > 0:
+        oos_profit_factor = float("inf")
+    else:
+        oos_profit_factor = 0.0
 
     if len(all_pnl_r) >= 2:
         std_all = max(float(np.std(all_pnl_r, ddof=1)), 1e-6)
