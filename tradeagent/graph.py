@@ -9,6 +9,7 @@ bleibt der Antrag im Zustand `proposed` und wird nicht ausgeführt.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from .config import Config
@@ -21,6 +22,11 @@ from .models import (
     now_utc,
 )
 from .risk import position_size_usd, validate_proposal
+from .state import OpenPosition, StateStore, get_state_store
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 class ProposalStore:
@@ -40,10 +46,24 @@ class ProposalStore:
 
 
 def build_proposal(
-    signal: Signal, cfg: Config, *, account_balance_usd: float = 1000.0,
-    current_drawdown_pct: float = 0.0,
+    signal: Signal,
+    cfg: Config,
+    *,
+    account_balance_usd: float = 1000.0,
+    state: Optional[StateStore] = None,
+    current_drawdown_pct: Optional[float] = None,
 ) -> Optional[TradeProposal]:
-    """Erstellt einen Antrag aus Signal + Risiko-Sizing (fail-closed)."""
+    """Erstellt einen Antrag aus Signal + Risiko-Sizing (fail-closed).
+
+    Drawdown wird aus dem StateStore geladen, wenn nicht explizit übergeben.
+    """
+    if state is None:
+        state = get_state_store()
+
+    # Drawdown aus StateStore laden — kein 0.0-Default mehr
+    if current_drawdown_pct is None:
+        current_drawdown_pct = state.current_drawdown_pct()
+
     size = position_size_usd(
         signal,
         account_balance_usd=account_balance_usd,
@@ -76,13 +96,22 @@ def run_pipeline(
     store: ProposalStore,
     *,
     account_balance_usd: float = 1000.0,
-    current_drawdown_pct: float = 0.0,
+    state: Optional[StateStore] = None,
+    # current_drawdown_pct wird nur noch für Tests/Overrides akzeptiert;
+    # im normalen Pfad kommt der Wert aus dem StateStore.
+    current_drawdown_pct: Optional[float] = None,
 ) -> list[TradeProposal]:
     """Läuft die Signale durch Risiko-Prüfung und legt Anträge an."""
+    if state is None:
+        state = get_state_store()
+
     proposals: list[TradeProposal] = []
     for sig in signals:
         proposal = build_proposal(
-            sig, cfg, account_balance_usd=account_balance_usd,
+            sig,
+            cfg,
+            account_balance_usd=account_balance_usd,
+            state=state,
             current_drawdown_pct=current_drawdown_pct,
         )
         if proposal is not None:
@@ -107,7 +136,9 @@ def approve(
     return proposal
 
 
-def reject(store: ProposalStore, proposal_id: str, reason: str = "") -> Optional[TradeProposal]:
+def reject(
+    store: ProposalStore, proposal_id: str, reason: str = ""
+) -> Optional[TradeProposal]:
     proposal = store.get(proposal_id)
     if proposal is None:
         return None
@@ -118,27 +149,85 @@ def reject(store: ProposalStore, proposal_id: str, reason: str = "") -> Optional
 
 
 def execute(
-    store: ProposalStore, proposal_id: str, cfg: Config
+    store: ProposalStore,
+    proposal_id: str,
+    cfg: Config,
+    state: Optional[StateStore] = None,
 ) -> Optional[ExecutionResult]:
-    """Ausführungs-Transition. Erfordert status=approved (fail-closed)."""
+    """Ausführungs-Transition. Erfordert status=approved (fail-closed).
+
+    Enforced vor broker.place_order():
+    1. max_open_positions-Limit
+    2. Keine Doppelposition im selben Symbol
+    Nach Fill: Position in StateStore persistiert.
+    """
     proposal = store.get(proposal_id)
     if proposal is None:
         return None
     if proposal.state != ApprovalState.APPROVED:
         return None  # Nicht freigegeben -> nicht ausführbar
 
+    if state is None:
+        state = get_state_store()
+
+    symbol = proposal.signal.symbol
+
+    # ── Fail-closed: Positions-Limits ─────────────────────────────────────────
+    if state.open_count() >= cfg.live_limits.max_open_positions:
+        return ExecutionResult(
+            proposal_id=proposal_id,
+            symbol=symbol,
+            side=proposal.signal.direction.value,
+            qty=0.0,
+            price=proposal.signal.price,
+            notional_usd=0.0,
+            mode="paper" if not cfg.trading.is_live else "live",
+            order_id="",
+            status="rejected",
+            raw={"error": "Open-Positions-Limit erreicht"},
+        )
+
+    if state.open_position_for_symbol(symbol) is not None:
+        return ExecutionResult(
+            proposal_id=proposal_id,
+            symbol=symbol,
+            side=proposal.signal.direction.value,
+            qty=0.0,
+            price=proposal.signal.price,
+            notional_usd=0.0,
+            mode="paper" if not cfg.trading.is_live else "live",
+            order_id="",
+            status="rejected",
+            raw={"error": "Symbol hat bereits offene Position"},
+        )
+
+    # ── Order platzieren ───────────────────────────────────────────────────────
     qty = proposal.proposed_size_usd / proposal.signal.price
     broker = make_broker(cfg)
     result = broker.place_order(
-        symbol=proposal.signal.symbol,
+        symbol=symbol,
         side=proposal.signal.direction.value,
         qty=qty,
         price=proposal.signal.price,
     )
     result.proposal_id = proposal_id
 
+    # ── Nach erfolgreichem Fill: Position persistieren ─────────────────────────
     if result.status in ("filled", "submitted"):
+        pos = OpenPosition(
+            proposal_id=proposal_id,
+            symbol=symbol.upper(),
+            side=proposal.signal.direction.value,
+            qty=qty,
+            entry_price=proposal.signal.price,
+            notional_usd=result.notional_usd,
+            stop_price=proposal.stop_price or proposal.signal.stop_price,
+            target_price=proposal.target_price or proposal.signal.target_price,
+            opened_at=_now_iso(),
+        )
+        state.add_position(pos)
         proposal.state = ApprovalState.EXECUTED
         proposal.executed_at = now_utc()
         proposal.fill = result.raw
+
     return result
