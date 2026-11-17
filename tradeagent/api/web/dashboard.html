@@ -1,0 +1,1004 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Crypto Trading Signal Agent</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='28'>📊</text></svg>" />
+<style>
+  :root {
+    --bg:#0b0f17; --panel:#141b26; --panel2:#1a2333; --line:#243042;
+    --text:#e6edf3; --muted:#8b9bb4; --accent:#3fb950; --buy:#3fb950;
+    --sell:#f85149; --warn:#d29922; --accent2:#58a6ff;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    min-height:100vh; }
+
+  /* ── Header ── */
+  header {
+    padding:14px 24px; border-bottom:1px solid var(--line);
+    display:flex; align-items:center; justify-content:space-between;
+    position:sticky; top:0; z-index:100; background:var(--bg);
+  }
+  header h1 { margin:0; font-size:17px; letter-spacing:.2px; }
+  .header-right { display:flex; align-items:center; gap:12px; }
+  .badge { padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600;
+    background:var(--panel2); color:var(--muted); border:1px solid var(--line); }
+  .badge.live { color:var(--sell); border-color:var(--sell); }
+  .badge.paper { color:var(--accent); border-color:var(--accent); }
+  .clock { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
+
+  /* ── Tabs ── */
+  .tabs {
+    display:flex; gap:0; border-bottom:1px solid var(--line);
+    padding:0 24px; background:var(--bg); position:sticky; top:49px; z-index:90;
+  }
+  .tab-btn {
+    padding:11px 20px; font-size:13px; font-weight:500; color:var(--muted);
+    background:transparent; border:none; border-bottom:2px solid transparent;
+    cursor:pointer; transition:color .15s, border-color .15s; margin-bottom:-1px;
+  }
+  .tab-btn:hover { color:var(--text); }
+  .tab-btn.active { color:var(--accent2); border-bottom-color:var(--accent2); }
+  .tab-panel { display:none; }
+  .tab-panel.active { display:block; }
+
+  /* ── Layout ── */
+  main { padding:20px 24px; max-width:1140px; margin:0 auto; }
+
+  /* ── Toolbar ── */
+  .toolbar {
+    display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+    margin-bottom:20px; padding:14px 16px;
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+  }
+  .toolbar select, .toolbar input[type=number] {
+    background:var(--panel2); color:var(--text); border:1px solid var(--line);
+    border-radius:7px; padding:6px 10px; font-size:13px; outline:none;
+  }
+  .toolbar select:focus, .toolbar input:focus { border-color:var(--accent2); }
+  .toolbar label { font-size:13px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+  .spacer { flex:1; }
+  .auto-label { font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+  .auto-label span { color:var(--accent); }
+
+  /* ── Buttons ── */
+  button {
+    cursor:pointer; border:1px solid var(--line); background:var(--panel2);
+    color:var(--text); padding:7px 14px; border-radius:8px; font-size:13px;
+    font-weight:500; transition:border-color .15s, opacity .15s;
+  }
+  button:hover:not(:disabled) { border-color:var(--accent2); }
+  button.primary { background:var(--accent2); color:#04101f; border-color:var(--accent2); }
+  button.primary:hover:not(:disabled) { opacity:.88; }
+  button.approve { background:var(--buy); color:#04101f; border-color:var(--buy); }
+  button.reject { background:var(--sell); color:#fff; border-color:var(--sell); }
+  button.exec-btn { background:var(--accent2); color:#04101f; border-color:var(--accent2); }
+  button:disabled { opacity:.35; cursor:not-allowed; }
+
+  /* ── Section headers ── */
+  .section-title {
+    font-size:13px; font-weight:600; color:var(--muted); letter-spacing:.6px;
+    text-transform:uppercase; margin:0 0 12px; display:flex; align-items:center; gap:8px;
+  }
+  .section-title .count {
+    background:var(--panel2); border:1px solid var(--line); border-radius:999px;
+    padding:1px 8px; font-size:11px; color:var(--text); font-weight:700;
+  }
+
+  /* ── Cards ── */
+  .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:14px; }
+  .card {
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:16px; display:flex; flex-direction:column; gap:0;
+    transition:border-color .2s;
+  }
+  .card:hover { border-color:var(--accent2); }
+  .card-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+  .card-title { font-size:15px; font-weight:700; display:flex; align-items:center; gap:8px; }
+  .dir { font-size:12px; font-weight:700; padding:2px 7px; border-radius:5px; }
+  .dir.buy { background:#3fb95022; color:var(--buy); }
+  .dir.sell { background:#f8514922; color:var(--sell); }
+  .price { font-size:21px; font-weight:700; margin-bottom:4px; }
+  .buy-color { color:var(--buy); } .sell-color { color:var(--sell); }
+  .meta { color:var(--muted); font-size:12px; margin-bottom:8px; line-height:1.6; }
+  .reasons { font-size:12px; color:var(--muted); margin:6px 0 10px; line-height:1.6; }
+  .reasons li { list-style:none; padding-left:12px; position:relative; }
+  .reasons li::before { content:"•"; position:absolute; left:0; color:var(--accent2); }
+  .num-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-bottom:12px; }
+  .num-cell { background:var(--panel2); border-radius:7px; padding:7px 9px; }
+  .num-cell .label { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; }
+  .num-cell .val { font-size:13px; font-weight:600; margin-top:2px; }
+  .stop-val { color:var(--sell); }
+  .target-val { color:var(--accent); }
+  .size-val { color:var(--accent2); }
+  .state-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .state-badge {
+    display:inline-flex; align-items:center; gap:5px;
+    padding:3px 9px; border-radius:999px; font-size:11px; font-weight:600;
+    background:var(--panel2); border:1px solid var(--line);
+  }
+  .state-badge.proposed { color:var(--warn); border-color:var(--warn); }
+  .state-badge.approved { color:var(--accent2); border-color:var(--accent2); }
+  .state-badge.executed { color:var(--accent); border-color:var(--accent); }
+  .state-badge.rejected { color:var(--sell); border-color:var(--sell); }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; }
+  .empty { color:var(--muted); text-align:center; padding:48px 24px; font-size:14px;
+    border:1px dashed var(--line); border-radius:12px; }
+
+  /* ── Toast ── */
+  #toast-container {
+    position:fixed; bottom:24px; right:24px; display:flex;
+    flex-direction:column; gap:8px; z-index:9999;
+  }
+  .toast {
+    padding:10px 16px; border-radius:9px; font-size:13px; font-weight:500;
+    background:var(--panel2); border:1px solid var(--line); color:var(--text);
+    box-shadow:0 4px 20px #0008; animation:slideIn .2s ease;
+    max-width:340px;
+  }
+  .toast.ok { border-color:var(--accent); color:var(--accent); }
+  .toast.err { border-color:var(--sell); color:var(--sell); }
+  .toast.info { border-color:var(--accent2); color:var(--accent2); }
+  @keyframes slideIn { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:none; } }
+
+  /* ── Progress / spinner ── */
+  .spinner {
+    display:inline-block; width:14px; height:14px; border:2px solid var(--line);
+    border-top-color:var(--accent2); border-radius:50%; animation:spin .6s linear infinite;
+    vertical-align:middle; margin-right:6px;
+  }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* ── Countdown bar ── */
+  #countdown-bar {
+    height:2px; background:var(--accent2); width:100%;
+    position:fixed; bottom:0; left:0; z-index:200;
+    transform-origin:left; transition:transform 1s linear;
+  }
+
+  /* ── Log section ── */
+  .log-section { margin-top:28px; }
+  #log-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:5px; }
+  #log-list li {
+    font-size:12px; color:var(--muted); padding:5px 10px;
+    background:var(--panel); border-radius:6px; border-left:3px solid var(--line);
+    font-variant-numeric:tabular-nums;
+  }
+  #log-list li.ok { border-color:var(--accent); color:var(--accent); }
+  #log-list li.err { border-color:var(--sell); color:var(--sell); }
+  #log-list li.info { border-color:var(--accent2); color:var(--accent2); }
+
+  /* ── Backtest UI ── */
+  .bt-form {
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:18px 20px; display:flex; flex-wrap:wrap; gap:14px; align-items:flex-end;
+    margin-bottom:24px;
+  }
+  .bt-form .form-group { display:flex; flex-direction:column; gap:5px; }
+  .bt-form label { font-size:12px; color:var(--muted); font-weight:500; }
+  .bt-form select, .bt-form input[type=number], .bt-form input[type=text] {
+    background:var(--panel2); color:var(--text); border:1px solid var(--line);
+    border-radius:7px; padding:7px 10px; font-size:13px; outline:none; min-width:100px;
+  }
+  .bt-form select:focus, .bt-form input:focus { border-color:var(--accent2); }
+  .bt-form .form-spacer { flex:1; }
+
+  .bt-summary {
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr));
+    gap:12px; margin-bottom:24px;
+  }
+  .bt-metric {
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:14px 16px;
+  }
+  .bt-metric .m-label { font-size:11px; color:var(--muted); text-transform:uppercase;
+    letter-spacing:.5px; margin-bottom:5px; }
+  .bt-metric .m-val { font-size:22px; font-weight:700; line-height:1; }
+  .bt-metric .m-sub { font-size:11px; color:var(--muted); margin-top:4px; }
+  .m-val.pos { color:var(--accent); }
+  .m-val.neg { color:var(--sell); }
+  .m-val.neutral { color:var(--accent2); }
+  .m-val.warn { color:var(--warn); }
+
+  .dsr-banner {
+    display:flex; align-items:center; gap:12px; padding:14px 18px;
+    border-radius:10px; margin-bottom:24px; font-weight:600; font-size:14px;
+    border:1px solid;
+  }
+  .dsr-banner.sig { background:#3fb95015; border-color:var(--accent); color:var(--accent); }
+  .dsr-banner.insig { background:#f8514912; border-color:var(--sell); color:var(--sell); }
+  .dsr-banner .dsr-icon { font-size:22px; }
+  .dsr-banner .dsr-detail { font-size:12px; font-weight:400; color:var(--muted); margin-top:2px; }
+
+  .bt-fold-table {
+    width:100%; border-collapse:collapse; font-size:13px; margin-bottom:24px;
+  }
+  .bt-fold-table th {
+    text-align:left; padding:9px 12px; font-size:11px; font-weight:600;
+    color:var(--muted); letter-spacing:.5px; text-transform:uppercase;
+    border-bottom:1px solid var(--line);
+  }
+  .bt-fold-table td {
+    padding:9px 12px; border-bottom:1px solid var(--line);
+    font-variant-numeric:tabular-nums;
+  }
+  .bt-fold-table tr:last-child td { border-bottom:none; }
+  .bt-fold-table tr:hover td { background:var(--panel2); }
+  .bt-fold-table .td-pos { color:var(--accent); }
+  .bt-fold-table .td-neg { color:var(--sell); }
+  .bt-fold-table .td-muted { color:var(--muted); }
+
+  .bt-loading {
+    text-align:center; padding:60px 24px; color:var(--muted); font-size:14px;
+  }
+  .bt-loading .big-spinner {
+    display:block; width:36px; height:36px; border:3px solid var(--line);
+    border-top-color:var(--accent2); border-radius:50%;
+    animation:spin .8s linear infinite; margin:0 auto 16px;
+  }
+
+  .bt-result-header {
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:16px; flex-wrap:wrap; gap:10px;
+  }
+  .bt-result-header h3 { margin:0; font-size:15px; }
+  .bt-result-meta { font-size:12px; color:var(--muted); }
+
+  .equity-chart {
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:16px; margin-bottom:24px;
+  }
+  .equity-chart h4 { margin:0 0 12px; font-size:13px; color:var(--muted);
+    text-transform:uppercase; letter-spacing:.5px; }
+  .equity-chart canvas { width:100% !important; display:block; }
+
+  /* ── Responsive ── */
+  @media(max-width:640px) {
+    header { padding:10px 14px; }
+    .tabs { padding:0 14px; }
+    main { padding:12px 14px; }
+    .toolbar { gap:8px; }
+    .cards { grid-template-columns:1fr; }
+    .num-grid { grid-template-columns:1fr 1fr; }
+    .bt-summary { grid-template-columns:1fr 1fr; }
+    .bt-form { gap:10px; }
+  }
+</style>
+</head>
+<body>
+<div id="countdown-bar"></div>
+
+<header>
+  <h1>📊 Trading Signal Agent</h1>
+  <div class="header-right">
+    <span class="clock" id="clock">--:--:--</span>
+    <span id="mode" class="badge">…</span>
+  </div>
+</header>
+
+<!-- Tabs -->
+<div class="tabs" role="tablist">
+  <button class="tab-btn active" role="tab" aria-selected="true"  aria-controls="tab-signals"  onclick="switchTab('signals')">📡 Signale</button>
+  <button class="tab-btn"        role="tab" aria-selected="false" aria-controls="tab-backtest" onclick="switchTab('backtest')">🔬 Backtest</button>
+</div>
+
+<main>
+
+  <!-- ══ TAB: SIGNALE ═══════════════════════════════════════════════════════ -->
+  <div id="tab-signals" class="tab-panel active" role="tabpanel">
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <label>
+        Symbole
+        <select id="sym-select" multiple size="1" style="min-width:140px">
+          <option value="BTC/USDT" selected>BTC/USDT</option>
+          <option value="ETH/USDT" selected>ETH/USDT</option>
+          <option value="SOL/USDT">SOL/USDT</option>
+          <option value="BNB/USDT">BNB/USDT</option>
+          <option value="XRP/USDT">XRP/USDT</option>
+          <option value="DOGE/USDT">DOGE/USDT</option>
+        </select>
+      </label>
+      <label>
+        Timeframe
+        <select id="tf-select">
+          <option value="15m">15m</option>
+          <option value="1h" selected>1h</option>
+          <option value="4h">4h</option>
+          <option value="1d">1d</option>
+        </select>
+      </label>
+      <label>
+        Limit
+        <input type="number" id="limit-input" value="120" min="30" max="500" step="10" style="width:70px" />
+      </label>
+      <div class="spacer"></div>
+      <span class="auto-label" id="auto-label" style="display:none">
+        Auto-Refresh in <span id="countdown-txt">30</span>s
+      </span>
+      <button onclick="toggleAuto()" id="auto-btn">▷ Auto-Refresh</button>
+      <button class="primary" id="scan-btn" onclick="scan()">🔍 Scannen</button>
+    </div>
+
+    <!-- Proposals -->
+    <div class="section-title">
+      Anträge <span class="count" id="prop-count">0</span>
+    </div>
+    <div class="cards" id="cards">
+      <div class="empty">Klicke „Scannen", um Signale zu analysieren.</div>
+    </div>
+
+    <!-- Activity Log -->
+    <div class="log-section">
+      <div class="section-title" style="margin-top:0">
+        Aktivitäts-Log <span class="count" id="log-count">0</span>
+      </div>
+      <ul id="log-list"></ul>
+    </div>
+  </div><!-- /tab-signals -->
+
+
+  <!-- ══ TAB: BACKTEST ══════════════════════════════════════════════════════ -->
+  <div id="tab-backtest" class="tab-panel" role="tabpanel">
+
+    <!-- Backtest-Formular -->
+    <form class="bt-form" onsubmit="runBacktest(event)">
+      <div class="form-group">
+        <label for="bt-symbols">Symbole</label>
+        <select id="bt-symbols" multiple size="1" style="min-width:150px">
+          <option value="BTC/USDT" selected>BTC/USDT</option>
+          <option value="ETH/USDT" selected>ETH/USDT</option>
+          <option value="SOL/USDT">SOL/USDT</option>
+          <option value="BNB/USDT">BNB/USDT</option>
+          <option value="XRP/USDT">XRP/USDT</option>
+          <option value="DOGE/USDT">DOGE/USDT</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="bt-tf">Timeframe</label>
+        <select id="bt-tf">
+          <option value="15m">15m</option>
+          <option value="1h" selected>1h</option>
+          <option value="4h">4h</option>
+          <option value="1d">1d</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="bt-limit">Bars</label>
+        <input type="number" id="bt-limit" value="500" min="120" max="2000" step="50" style="width:80px" />
+      </div>
+      <div class="form-group">
+        <label for="bt-folds">Folds</label>
+        <input type="number" id="bt-folds" value="5" min="2" max="20" step="1" style="width:60px" />
+      </div>
+      <div class="form-group">
+        <label for="bt-isratio">IS-Anteil %</label>
+        <input type="number" id="bt-isratio" value="70" min="50" max="90" step="5" style="width:70px" />
+      </div>
+      <div class="form-group">
+        <label for="bt-risk">Risiko / Trade (USD)</label>
+        <input type="number" id="bt-risk" value="20" min="1" max="10000" step="1" style="width:80px" />
+      </div>
+      <div class="form-spacer"></div>
+      <button type="submit" class="primary" id="bt-run-btn">▶ Backtest starten</button>
+    </form>
+
+    <!-- Ergebnis-Bereich -->
+    <div id="bt-result-area">
+      <div class="empty">Konfiguriere und starte einen Backtest.</div>
+    </div>
+
+  </div><!-- /tab-backtest -->
+
+</main>
+
+<div id="toast-container"></div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════
+   GEMEINSAMER STATE & UTILS
+════════════════════════════════════════════════════════════════ */
+let proposals = [];
+let autoRefresh = false;
+let autoInterval = null;
+let countdownSeconds = 30;
+let countdownTimer = null;
+const activityLog = [];
+
+/* ── Clock ── */
+function tickClock() {
+  const el = document.getElementById('clock');
+  if (el) el.textContent = new Date().toLocaleTimeString('de-CH');
+}
+tickClock();
+setInterval(tickClock, 1000);
+
+/* ── Toast ── */
+function toast(msg, type = 'info', duration = 3500) {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = 'toast ' + type;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => t.remove(), duration);
+}
+
+/* ── Log ── */
+function logEntry(msg, type = 'info') {
+  const ts = new Date().toLocaleTimeString('de-CH');
+  activityLog.unshift({ ts, msg, type });
+  if (activityLog.length > 50) activityLog.pop();
+  renderLog();
+}
+function renderLog() {
+  const ul = document.getElementById('log-list');
+  document.getElementById('log-count').textContent = activityLog.length;
+  ul.innerHTML = activityLog.slice(0, 20).map(e =>
+    `<li class="${e.type}">[${e.ts}] ${e.type.toUpperCase()} — ${e.msg}</li>`
+  ).join('');
+}
+
+/* ── API ── */
+async function api(path, method = 'GET', body = null) {
+  const opt = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opt.body = JSON.stringify(body);
+  const r = await fetch(path, opt);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || 'HTTP ' + r.status);
+  return data;
+}
+
+/* ── Tab-Switching ── */
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('aria-controls') === 'tab-' + name);
+    b.setAttribute('aria-selected', b.classList.contains('active'));
+  });
+  document.querySelectorAll('.tab-panel').forEach(p => {
+    p.classList.toggle('active', p.id === 'tab-' + name);
+  });
+}
+
+/* ── Health ── */
+async function loadHealth() {
+  try {
+    const h = await api('/health');
+    const el = document.getElementById('mode');
+    if (h.mode === 'live') {
+      el.textContent = '🔴 LIVE'; el.className = 'badge live';
+    } else {
+      el.textContent = '🟢 PAPER'; el.className = 'badge paper';
+    }
+  } catch {
+    document.getElementById('mode').textContent = '⚠ offline';
+  }
+}
+loadHealth();
+
+
+/* ══════════════════════════════════════════════════════════════
+   TAB: SIGNALE
+════════════════════════════════════════════════════════════════ */
+function getSelectedSymbols() {
+  const sel = document.getElementById('sym-select');
+  const vals = Array.from(sel.selectedOptions).map(o => o.value);
+  return vals.length ? vals : ['BTC/USDT', 'ETH/USDT'];
+}
+
+async function loadProposals() {
+  try {
+    const data = await api('/proposals');
+    proposals = data.proposals || [];
+    renderCards();
+  } catch (e) {
+    logEntry('Fehler beim Laden der Anträge: ' + e.message, 'err');
+  }
+}
+
+function renderCards() {
+  const container = document.getElementById('cards');
+  document.getElementById('prop-count').textContent = proposals.length;
+  if (!proposals.length) {
+    container.innerHTML = '<div class="empty">Keine offenen Anträge. Klicke „Scannen".</div>';
+    return;
+  }
+  container.innerHTML = proposals.map(p => cardHTML(p)).join('');
+}
+
+function cardHTML(p) {
+  const sig = p.signal || {};
+  const dir = (sig.direction || '').toLowerCase();
+  const price = sig.price ? sig.price.toLocaleString('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+  const stop  = sig.stop_price  ? sig.stop_price.toLocaleString('de-CH',  { minimumFractionDigits: 2 }) : '—';
+  const tgt   = sig.target_price ? sig.target_price.toLocaleString('de-CH', { minimumFractionDigits: 2 }) : '—';
+  const rrr   = sig.rrr ? sig.rrr.toFixed(2) : '—';
+  const reasons = (sig.reasons || []).map(r => `<li>${r}</li>`).join('');
+  const state = (p.state || 'proposed').toLowerCase();
+
+  return `<div class="card">
+    <div class="card-header">
+      <span class="card-title">
+        ${sig.symbol || '—'}
+        <span class="dir ${dir}">${dir.toUpperCase()}</span>
+      </span>
+      <span style="font-size:12px;color:var(--muted)">Score: ${sig.score ?? '—'}</span>
+    </div>
+    <div class="price ${dir === 'buy' ? 'buy-color' : 'sell-color'}">$${price}</div>
+    <div class="meta">${sig.timeframe || ''} · ${sig.exchange || ''}</div>
+    <ul class="reasons">${reasons}</ul>
+    <div class="num-grid">
+      <div class="num-cell"><div class="label">Stop</div><div class="val stop-val">$${stop}</div></div>
+      <div class="num-cell"><div class="label">Target</div><div class="val target-val">$${tgt}</div></div>
+      <div class="num-cell"><div class="label">RRR</div><div class="val size-val">${rrr}</div></div>
+    </div>
+    <div class="state-row">
+      <span class="state-badge ${state}">${state.toUpperCase()}</span>
+    </div>
+    <div class="actions">
+      ${state === 'proposed' ? `
+        <button class="approve" onclick="doApprove('${p.id}')">✓ Freigeben</button>
+        <button class="reject"  onclick="doReject('${p.id}')">✕ Ablehnen</button>` : ''}
+      ${state === 'approved' ? `
+        <button class="exec-btn" onclick="doExecute('${p.id}')">⚡ Ausführen</button>
+        <button class="reject"   onclick="doReject('${p.id}')">✕ Ablehnen</button>` : ''}
+    </div>
+  </div>`;
+}
+
+async function scan() {
+  const btn = document.getElementById('scan-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Scannen…';
+  logEntry('Scan gestartet…', 'info');
+  try {
+    const body = {
+      symbols: getSelectedSymbols(),
+      timeframe: document.getElementById('tf-select').value,
+      limit: parseInt(document.getElementById('limit-input').value) || 120,
+    };
+    const data = await api('/scan', 'POST', body);
+    proposals = data.proposals || [];
+    renderCards();
+    toast(`${proposals.length} Antrag/Anträge gefunden`, proposals.length ? 'ok' : 'info');
+    logEntry(`Scan abgeschlossen — ${proposals.length} Anträge`, proposals.length ? 'ok' : 'info');
+  } catch (e) {
+    toast('Scan-Fehler: ' + e.message, 'err');
+    logEntry('Scan-Fehler: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔍 Scannen';
+  }
+}
+
+async function doApprove(id) {
+  try {
+    await api('/approve', 'POST', { proposal_id: id, approved_by: 'operator' });
+    toast('Freigegeben ✓', 'ok');
+    logEntry(`Antrag ${id.slice(0,8)} freigegeben`, 'ok');
+    await loadProposals();
+  } catch (e) {
+    toast('Fehler: ' + e.message, 'err');
+    logEntry('Freigabe-Fehler: ' + e.message, 'err');
+  }
+}
+
+async function doReject(id) {
+  try {
+    await api('/reject', 'POST', { proposal_id: id, reason: 'Manual reject' });
+    toast('Abgelehnt', 'info');
+    logEntry(`Antrag ${id.slice(0,8)} abgelehnt`, 'info');
+    await loadProposals();
+  } catch (e) {
+    toast('Fehler: ' + e.message, 'err');
+  }
+}
+
+async function doExecute(id) {
+  try {
+    await api('/execute', 'POST', { proposal_id: id });
+    toast('Ausgeführt ⚡', 'ok');
+    logEntry(`Antrag ${id.slice(0,8)} ausgeführt`, 'ok');
+    await loadProposals();
+  } catch (e) {
+    toast('Fehler: ' + e.message, 'err');
+    logEntry('Ausführungs-Fehler: ' + e.message, 'err');
+  }
+}
+
+/* ── Auto-Refresh ── */
+function toggleAuto() {
+  autoRefresh = !autoRefresh;
+  const btn = document.getElementById('auto-btn');
+  const lbl = document.getElementById('auto-label');
+  if (autoRefresh) {
+    btn.textContent = '⏹ Stop';
+    lbl.style.display = 'flex';
+    startCountdown();
+    autoInterval = setInterval(() => { scan(); startCountdown(); }, 30000);
+  } else {
+    btn.textContent = '▷ Auto-Refresh';
+    lbl.style.display = 'none';
+    clearInterval(autoInterval);
+    clearInterval(countdownTimer);
+    resetCountdownBar();
+  }
+}
+
+function startCountdown() {
+  countdownSeconds = 30;
+  clearInterval(countdownTimer);
+  document.getElementById('countdown-txt').textContent = countdownSeconds;
+  animateCountdownBar(30);
+  countdownTimer = setInterval(() => {
+    countdownSeconds--;
+    const el = document.getElementById('countdown-txt');
+    if (el) el.textContent = Math.max(countdownSeconds, 0);
+    if (countdownSeconds <= 0) clearInterval(countdownTimer);
+  }, 1000);
+}
+
+function animateCountdownBar(secs) {
+  const bar = document.getElementById('countdown-bar');
+  bar.style.transition = 'none';
+  bar.style.transform = 'scaleX(1)';
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      bar.style.transition = `transform ${secs}s linear`;
+      bar.style.transform = 'scaleX(0)';
+    });
+  });
+}
+
+function resetCountdownBar() {
+  const bar = document.getElementById('countdown-bar');
+  bar.style.transition = 'none';
+  bar.style.transform = 'scaleX(0)';
+}
+
+loadProposals();
+
+
+/* ══════════════════════════════════════════════════════════════
+   TAB: BACKTEST
+════════════════════════════════════════════════════════════════ */
+
+let lastBacktestResult = null;
+
+function getBtSymbols() {
+  const sel = document.getElementById('bt-symbols');
+  const vals = Array.from(sel.selectedOptions).map(o => o.value);
+  return vals.length ? vals : ['BTC/USDT'];
+}
+
+async function runBacktest(evt) {
+  evt.preventDefault();
+  const btn = document.getElementById('bt-run-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Läuft…';
+
+  const area = document.getElementById('bt-result-area');
+  area.innerHTML = `<div class="bt-loading">
+    <span class="big-spinner"></span>
+    Backtest läuft… Das kann je nach Datenmenge 5–30 Sekunden dauern.
+  </div>`;
+
+  const body = {
+    symbols:          getBtSymbols(),
+    timeframe:        document.getElementById('bt-tf').value,
+    limit:            parseInt(document.getElementById('bt-limit').value) || 500,
+    n_folds:          parseInt(document.getElementById('bt-folds').value) || 5,
+    is_ratio:         (parseFloat(document.getElementById('bt-isratio').value) || 70) / 100,
+    min_signal_score: 50,
+    risk_usd:         parseFloat(document.getElementById('bt-risk').value) || 20,
+  };
+
+  try {
+    const data = await api('/backtest', 'POST', body);
+    lastBacktestResult = data;
+    renderBacktestResult(data);
+    toast('Backtest abgeschlossen ✓', 'ok');
+    logEntry('Backtest abgeschlossen', 'ok');
+  } catch (e) {
+    area.innerHTML = `<div class="empty" style="border-color:var(--sell);color:var(--sell)">
+      Backtest-Fehler: ${e.message}
+    </div>`;
+    toast('Backtest-Fehler: ' + e.message, 'err');
+    logEntry('Backtest-Fehler: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ Backtest starten';
+  }
+}
+
+function fmtPct(v) {
+  if (v === null || v === undefined || isNaN(v)) return '—';
+  return (v * 100).toFixed(1) + '%';
+}
+function fmtR(v) {
+  if (v === null || v === undefined || isNaN(v)) return '—';
+  return (v >= 0 ? '+' : '') + v.toFixed(3) + ' R';
+}
+function fmtN(v, dec = 2) {
+  if (v === null || v === undefined || isNaN(v)) return '—';
+  return (v >= 0 ? '' : '') + v.toFixed(dec);
+}
+function colorClass(v) {
+  if (v === null || v === undefined || isNaN(v)) return '';
+  return v > 0 ? 'pos' : v < 0 ? 'neg' : 'neutral';
+}
+
+function renderBacktestResult(r) {
+  // r is a dict with one key per symbol (from app.py) or a single BacktestResult
+  // app.py returns { symbol: BacktestResult.to_dict(), … }
+  const area = document.getElementById('bt-result-area');
+  const symbols = Object.keys(r);
+
+  if (!symbols.length) {
+    area.innerHTML = '<div class="empty">Keine Ergebnisse.</div>';
+    return;
+  }
+
+  let html = '';
+  for (const sym of symbols) {
+    const res = r[sym];
+    if (res.error) {
+      html += `<div class="empty" style="border-color:var(--warn);color:var(--warn);margin-bottom:16px">
+        ${sym}: ${res.error}
+      </div>`;
+      continue;
+    }
+    html += renderSingleBacktest(sym, res);
+  }
+  area.innerHTML = html;
+
+  // Equity-Chart nach dem Rendern aufbauen
+  for (const sym of symbols) {
+    const res = r[sym];
+    if (!res.error) drawEquityChart(sym, res);
+  }
+}
+
+function renderSingleBacktest(sym, res) {
+  const dsr = res.dsr ?? 0;
+  const dsrSig = res.dsr_significant ?? false;
+  const dsrPct = (dsr * 100).toFixed(1);
+
+  const dsrBanner = dsrSig
+    ? `<div class="dsr-banner sig">
+        <span class="dsr-icon">✅</span>
+        <div>
+          DSR signifikant — Strategie hat statistisches Gewicht
+          <div class="dsr-detail">p = ${dsrPct}% > 95% | Deflated Sharpe Ratio nach Bailey/López de Prado</div>
+        </div>
+       </div>`
+    : `<div class="dsr-banner insig">
+        <span class="dsr-icon">❌</span>
+        <div>
+          DSR nicht signifikant — kein stabiler Edge nachgewiesen
+          <div class="dsr-detail">p = ${dsrPct}% < 95% | Mehr Daten oder Parameter-Review nötig</div>
+        </div>
+       </div>`;
+
+  const sharpeClass = colorClass(res.oos_sharpe);
+  const sortinoClass = colorClass(res.oos_sortino);
+  const totalRClass = colorClass(res.oos_total_r);
+  const pfClass = res.oos_profit_factor >= 1.0 ? 'pos' : 'neg';
+  const ddClass = res.oos_max_drawdown_pct > 50 ? 'neg' : res.oos_max_drawdown_pct > 25 ? 'warn' : 'pos';
+
+  const summary = `<div class="bt-summary">
+    <div class="bt-metric">
+      <div class="m-label">OOS Trades</div>
+      <div class="m-val neutral">${res.oos_n_trades ?? 0}</div>
+      <div class="m-sub">${res.n_folds ?? 0} Folds</div>
+    </div>
+    <div class="bt-metric">
+      <div class="m-label">Win-Rate</div>
+      <div class="m-val ${colorClass((res.oos_win_rate ?? 0) - 0.5)}">${fmtPct(res.oos_win_rate)}</div>
+      <div class="m-sub">OOS gesamt</div>
+    </div>
+    <div class="bt-metric">
+      <div class="m-label">Sharpe</div>
+      <div class="m-val ${sharpeClass}">${fmtN(res.oos_sharpe)}</div>
+      <div class="m-sub">annualisiert</div>
+    </div>
+    <div class="bt-metric">
+      <div class="m-label">Sortino</div>
+      <div class="m-val ${sortinoClass}">${fmtN(res.oos_sortino)}</div>
+      <div class="m-sub">annualisiert</div>
+    </div>
+    <div class="bt-metric">
+      <div class="m-label">Total R (OOS)</div>
+      <div class="m-val ${totalRClass}">${fmtN(res.oos_total_r, 3)}</div>
+      <div class="m-sub">Risk-Einheiten</div>
+    </div>
+    <div class="bt-metric">
+      <div class="m-label">Profit Factor</div>
+      <div class="m-val ${pfClass}">${fmtN(res.oos_profit_factor, 2)}</div>
+      <div class="m-sub">>1.0 = profitabel</div>
+    </div>
+    <div class="bt-metric">
+      <div class="m-label">Max Drawdown</div>
+      <div class="m-val ${ddClass}">${fmtN(res.oos_max_drawdown_pct, 1)}%</div>
+      <div class="m-sub">OOS kumuliert</div>
+    </div>
+    <div class="bt-metric">
+      <div class="m-label">DSR (p-Wert)</div>
+      <div class="m-val ${dsrSig ? 'pos' : 'neg'}">${dsrPct}%</div>
+      <div class="m-sub">Schwelle: 95%</div>
+    </div>
+  </div>`;
+
+  // Fold-Tabelle
+  const folds = res.folds || [];
+  const foldRows = folds.map(f => {
+    const wr = fmtPct(f.win_rate);
+    const sh = f.sharpe != null ? fmtN(f.sharpe) : '—';
+    const st = f.sortino != null ? fmtN(f.sortino) : '—';
+    const ar = fmtN(f.avg_r, 3);
+    const tr = fmtN(f.total_r, 3);
+    const dd = fmtN(f.max_drawdown_pct, 1) + '%';
+    const pf = fmtN(f.profit_factor, 2);
+    const shCls = f.sharpe >= 0 ? 'td-pos' : 'td-neg';
+    const arCls = f.avg_r >= 0 ? 'td-pos' : 'td-neg';
+    const trCls = f.total_r >= 0 ? 'td-pos' : 'td-neg';
+    return `<tr>
+      <td class="td-muted">#${f.fold}</td>
+      <td>${f.oos_bars}</td>
+      <td>${f.n_trades}</td>
+      <td>${wr}</td>
+      <td class="${shCls}">${sh}</td>
+      <td class="${arCls}">${ar}</td>
+      <td class="${trCls}">${tr}</td>
+      <td>${dd}</td>
+      <td>${pf}</td>
+    </tr>`;
+  }).join('');
+
+  const table = `<table class="bt-fold-table">
+    <thead>
+      <tr>
+        <th>Fold</th><th>OOS Bars</th><th>Trades</th><th>Win%</th>
+        <th>Sharpe</th><th>Avg R</th><th>Total R</th><th>MaxDD</th><th>PF</th>
+      </tr>
+    </thead>
+    <tbody>${foldRows}</tbody>
+  </table>`;
+
+  const metaTs = res.created_at ? new Date(res.created_at).toLocaleString('de-CH') : '';
+
+  return `<div style="margin-bottom:32px">
+    <div class="bt-result-header">
+      <h3>${sym} — Walk-Forward Backtest</h3>
+      <span class="bt-result-meta">${res.total_bars} Bars · ${res.timeframe} · ${metaTs}</span>
+    </div>
+    ${dsrBanner}
+    ${summary}
+    <div class="equity-chart">
+      <h4>OOS Equity-Kurve (kumuliertes R)</h4>
+      <canvas id="equity-${sym.replace('/','_')}" height="160"></canvas>
+    </div>
+    <div class="section-title" style="margin-bottom:10px">Fold-Details (OOS)</div>
+    ${table}
+  </div>`;
+}
+
+function drawEquityChart(sym, res) {
+  const canvasId = 'equity-' + sym.replace('/', '_');
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+
+  // Alle OOS-Trades über alle Folds sammeln, in Fold-Reihenfolge
+  const folds = (res.folds || []).slice().sort((a, b) => a.fold - b.fold);
+  const pnlSeries = [];
+  for (const f of folds) {
+    for (const t of (f.trades || [])) {
+      pnlSeries.push(t.pnl_r ?? 0);
+    }
+  }
+  if (!pnlSeries.length) {
+    const ctx2 = canvas.getContext('2d');
+    canvas.width = canvas.offsetWidth || 600;
+    canvas.height = 160;
+    ctx2.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim();
+    ctx2.font = '13px system-ui';
+    ctx2.textAlign = 'center';
+    ctx2.fillText('Keine Trades in OOS-Folds', canvas.width / 2, 80);
+    return;
+  }
+
+  // Kumulatives R
+  const cumR = [];
+  let running = 0;
+  for (const r of pnlSeries) {
+    running += r;
+    cumR.push(running);
+  }
+
+  const W = canvas.offsetWidth || 600;
+  const H = 160;
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  const pad = { top: 10, right: 20, bottom: 24, left: 44 };
+  const cW = W - pad.left - pad.right;
+  const cH = H - pad.top - pad.bottom;
+
+  const minV = Math.min(0, ...cumR);
+  const maxV = Math.max(0, ...cumR);
+  const range = maxV - minV || 1;
+
+  function xOf(i) { return pad.left + (i / (cumR.length - 1 || 1)) * cW; }
+  function yOf(v) { return pad.top + cH - ((v - minV) / range) * cH; }
+
+  const style = getComputedStyle(document.documentElement);
+  const colAccent  = style.getPropertyValue('--accent').trim();
+  const colSell    = style.getPropertyValue('--sell').trim();
+  const colLine    = style.getPropertyValue('--line').trim();
+  const colMuted   = style.getPropertyValue('--muted').trim();
+  const colPanel2  = style.getPropertyValue('--panel2').trim();
+
+  // Grid
+  ctx.strokeStyle = colLine;
+  ctx.lineWidth = 0.5;
+  const gridLines = 4;
+  for (let i = 0; i <= gridLines; i++) {
+    const y = pad.top + (i / gridLines) * cH;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + cW, y); ctx.stroke();
+    const v = maxV - (i / gridLines) * range;
+    ctx.fillStyle = colMuted; ctx.font = '10px system-ui'; ctx.textAlign = 'right';
+    ctx.fillText(v.toFixed(2), pad.left - 4, y + 3);
+  }
+
+  // Zero-Linie
+  const y0 = yOf(0);
+  ctx.strokeStyle = colMuted; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+  ctx.beginPath(); ctx.moveTo(pad.left, y0); ctx.lineTo(pad.left + cW, y0); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Farbige Fläche unter Kurve
+  const finalVal = cumR[cumR.length - 1];
+  const fillColor = finalVal >= 0 ? colAccent : colSell;
+  ctx.beginPath();
+  ctx.moveTo(xOf(0), y0);
+  for (let i = 0; i < cumR.length; i++) ctx.lineTo(xOf(i), yOf(cumR[i]));
+  ctx.lineTo(xOf(cumR.length - 1), y0);
+  ctx.closePath();
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = fillColor;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // Linie
+  ctx.strokeStyle = fillColor; ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i = 0; i < cumR.length; i++) {
+    if (i === 0) ctx.moveTo(xOf(i), yOf(cumR[i]));
+    else ctx.lineTo(xOf(i), yOf(cumR[i]));
+  }
+  ctx.stroke();
+
+  // Fold-Trenner
+  ctx.strokeStyle = colLine; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+  let tradeCount = 0;
+  for (let fi = 0; fi < folds.length - 1; fi++) {
+    tradeCount += (folds[fi].trades || []).length;
+    const x = xOf(tradeCount - 1);
+    ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, pad.top + cH); ctx.stroke();
+    ctx.fillStyle = colMuted; ctx.font = '9px system-ui'; ctx.textAlign = 'center';
+    ctx.fillText('F' + (fi + 2), x + 10, pad.top + 9);
+  }
+  ctx.setLineDash([]);
+
+  // Endwert
+  ctx.fillStyle = fillColor; ctx.font = 'bold 11px system-ui'; ctx.textAlign = 'left';
+  ctx.fillText((finalVal >= 0 ? '+' : '') + finalVal.toFixed(2) + ' R',
+    xOf(cumR.length - 1) + 4, yOf(finalVal) - 4);
+}
+</script>
+</body>
+</html>

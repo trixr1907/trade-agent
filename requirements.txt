@@ -1,0 +1,21 @@
+# --- Core data / exchange ---
+ccxt>=4.2.0            # einheitliche Exchange-Schnittstelle (Bitget)
+pandas>=2.0
+numpy>=1.24
+
+# --- Web dashboard ---
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-dotenv>=1.0
+
+# --- LLM analyst (optional, deterministische Engine funktioniert ohne) ---
+langgraph>=0.2.0
+langchain-core>=0.3.0
+
+# --- Backtest / validation (phase 2-3) ---
+# vectorbt>=0.26
+# scipy>=1.10
+
+# --- dev ---
+pytest>=8.0
+httpx>=0.27

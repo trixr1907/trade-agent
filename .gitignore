@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+pip-wheel-metadata/
+
+# Virtualenv
+.venv/
+venv/
+env/
+ENV/
+
+# Secrets / Credentials
+.env
+*.pem
+*.key
+
+# Logs & PIDs
+*.log
+*.pid
+trade-agent.log
+trade-agent.pid
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary test/debug scripts
+check_dashboard.py
+check_import.py
+check_routes.py
+list_routes.py
