@@ -32,6 +32,7 @@ cd trade-agent
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env          # API-Keys nur hier
+python -m tradeagent.api.auth  # Hash für AUTH_PASSWORD_HASH erzeugen, mit AUTH_USERNAME in .env eintragen
 python -m tradeagent.api.app   # http://localhost:8000
 ```
 
@@ -48,7 +49,16 @@ python -m tradeagent.api.app   # http://localhost:8000
 | POST    | `/approve`     | Freigabe (nur Server-Trust, fail-closed) |
 | POST    | `/reject`      | Antrag ablehnen                       |
 | POST    | `/execute`     | Ausführung (nur nach Freigabe)        |
-| GET     | `/health`      | Gesundheits-Status                    |
+| GET     | `/health`      | Gesundheits-Status inkl. `trading_state` |
+| POST    | `/login`       | Anmeldung, liefert Bearer-Session-Token |
+| POST    | `/logout`      | Eigene Session beenden                |
+| GET     | `/auth/status` | Session-Status                        |
+| GET     | `/control/status` | Halt/Resume-Status                 |
+| POST    | `/control/halt`   | Trading global stoppen             |
+| POST    | `/control/resume` | Trading fortsetzen                 |
+
+`/scan`, `/approve`, `/reject`, `/execute` und `/control/*` verlangen den Header
+`Authorization: Bearer <token>`. Ohne gültige Session antworten sie mit 401.
 
 ## Sicherheit
 

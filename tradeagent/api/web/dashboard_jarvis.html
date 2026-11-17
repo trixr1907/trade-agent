@@ -277,6 +277,156 @@
       background: rgba(85, 240, 160, 0.08);
     }
 
+    .header-meta {
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .trading-badge.running {
+      color: var(--green);
+      border-color: rgba(85, 240, 160, 0.46);
+      background: rgba(85, 240, 160, 0.08);
+    }
+
+    .trading-badge.halted {
+      color: var(--red);
+      border-color: rgba(255, 101, 118, 0.55);
+      background: rgba(255, 101, 118, 0.1);
+    }
+
+    .trading-badge.unknown {
+      color: var(--amber);
+      border-color: rgba(255, 198, 90, 0.5);
+      background: rgba(255, 198, 90, 0.08);
+    }
+
+    .header-button {
+      min-height: 28px;
+      padding: 0 10px;
+      color: var(--cyan-soft);
+      border: 1px solid var(--line);
+      background: rgba(51, 194, 220, 0.08);
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+    }
+
+    .header-button:hover:not(:disabled) {
+      color: var(--white);
+      border-color: var(--line-bright);
+      background: rgba(51, 194, 220, 0.16);
+    }
+
+    .header-button:focus-visible {
+      outline: 2px solid var(--cyan);
+      outline-offset: 2px;
+    }
+
+    .header-button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .header-button.danger {
+      color: var(--red);
+      border-color: rgba(255, 101, 118, 0.55);
+      background: rgba(255, 101, 118, 0.1);
+    }
+
+    .header-button.danger:hover:not(:disabled) {
+      color: var(--white);
+      background: rgba(255, 101, 118, 0.2);
+    }
+
+    .login-overlay {
+      position: fixed;
+      z-index: 900;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: rgba(3, 8, 13, 0.86);
+      backdrop-filter: blur(6px);
+    }
+
+    .login-overlay[hidden] {
+      display: none;
+    }
+
+    .login-panel {
+      width: min(100%, 380px);
+      padding: 26px 24px;
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+      box-shadow: var(--shadow);
+    }
+
+    .login-panel h2 {
+      margin: 0 0 6px;
+      color: var(--cyan-soft);
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 0.95rem;
+      letter-spacing: 0.12em;
+    }
+
+    .login-panel p {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.45;
+    }
+
+    .login-field {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 14px;
+      color: var(--muted);
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 0.7rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .login-field input {
+      width: 100%;
+      min-height: 40px;
+      padding: 0 12px;
+      color: var(--white);
+      border: 1px solid var(--line);
+      background: rgba(3, 8, 13, 0.7);
+      font: inherit;
+      font-size: 0.9rem;
+      letter-spacing: normal;
+      text-transform: none;
+    }
+
+    .login-field input:focus-visible {
+      border-color: var(--cyan);
+      outline: 2px solid var(--cyan);
+      outline-offset: 1px;
+    }
+
+    .login-panel .login-error {
+      min-height: 1.2em;
+      margin: 0 0 12px;
+      color: var(--red);
+      font-size: 0.78rem;
+    }
+
+    .login-panel .action-button {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .login-panel .header-button {
+      width: 100%;
+      min-height: 34px;
+      margin-top: 10px;
+    }
+
     .ticker-wrap {
       display: flex;
       align-items: center;
@@ -1581,6 +1731,22 @@
     </div>
   </div>
 
+  <div id="login-overlay" class="login-overlay" hidden>
+    <form id="login-form" class="login-panel" role="dialog" aria-modal="true" aria-labelledby="login-title" novalidate>
+      <h2 id="login-title">OPERATOR LOGIN</h2>
+      <p>Scan, Freigabe, Ausführung und Halt/Resume erfordern eine Anmeldung.</p>
+      <label class="login-field">Benutzername
+        <input id="login-username" name="username" type="text" autocomplete="username" required>
+      </label>
+      <label class="login-field">Passwort
+        <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <p id="login-error" class="login-error" role="alert"></p>
+      <button id="login-submit" class="action-button primary" type="submit">ANMELDEN</button>
+      <button id="login-cancel" class="header-button" type="button">NUR ANSEHEN</button>
+    </form>
+  </div>
+
   <div class="shell">
     <header class="topbar">
       <div class="brand">
@@ -1600,6 +1766,9 @@
       <div class="header-meta">
         <time id="clock" class="clock mono">--:--:-- UTC</time>
         <span id="mode-badge" class="mode-badge">◌ VERBINDUNG…</span>
+        <span id="trading-badge" class="status-chip trading-badge unknown" title="Trading-Status der Control Plane">◌ TRADING UNBEKANNT</span>
+        <button id="halt-button" class="header-button danger" type="button" hidden>HALT</button>
+        <button id="auth-button" class="header-button" type="button">ANMELDEN</button>
       </div>
     </header>
 
@@ -1823,7 +1992,9 @@
       autoRefresh: false,
       autoInterval: null,
       countdownInterval: null,
-      busyScan: false
+      busyScan: false,
+      auth: null,
+      tradingState: "unknown"
     };
 
     const COLORS = {
@@ -1913,19 +2084,218 @@
       `).join("");
     }
 
+    const AUTH_STORAGE_KEY = "tradeagent.session";
+
+    function readStoredSession() {
+      try {
+        const raw = window.sessionStorage.getItem(AUTH_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (!parsed || typeof parsed.token !== "string" || !parsed.token) return null;
+        if (parsed.expiresAt && Date.parse(parsed.expiresAt) <= Date.now()) return null;
+        return parsed;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function storeSession(session) {
+      try {
+        if (session) {
+          window.sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+        } else {
+          window.sessionStorage.removeItem(AUTH_STORAGE_KEY);
+        }
+      } catch (error) {
+        /* sessionStorage nicht verfügbar: Session gilt nur bis zum Neuladen. */
+      }
+    }
+
+    function renderTradingState(value) {
+      const tradingState = value === "running" || value === "halted" ? value : "unknown";
+      const badge = $("#trading-badge");
+      const haltButton = $("#halt-button");
+
+      state.tradingState = tradingState;
+      badge.className = `status-chip trading-badge ${tradingState}`;
+      badge.textContent = tradingState === "running"
+        ? "● TRADING AKTIV"
+        : tradingState === "halted" ? "■ TRADING GESTOPPT" : "◌ TRADING UNBEKANNT";
+      haltButton.textContent = tradingState === "halted" ? "RESUME" : "HALT";
+      haltButton.classList.toggle("danger", tradingState !== "halted");
+    }
+
+    function renderAuth() {
+      const loggedIn = Boolean(state.auth);
+      const authButton = $("#auth-button");
+
+      authButton.textContent = loggedIn ? "ABMELDEN" : "ANMELDEN";
+      authButton.title = loggedIn
+        ? `Angemeldet als ${state.auth.account}`
+        : "Anmelden für Scan, Freigabe, Ausführung und Halt/Resume";
+      $("#halt-button").hidden = !loggedIn;
+    }
+
+    function setSession(session) {
+      state.auth = session;
+      storeSession(session);
+      renderAuth();
+    }
+
+    function showLogin(message = "") {
+      $("#login-error").textContent = message;
+      $("#login-password").value = "";
+      $("#login-overlay").hidden = false;
+      window.setTimeout(() => $("#login-username").focus(), 0);
+    }
+
+    function hideLogin() {
+      $("#login-overlay").hidden = true;
+      $("#login-error").textContent = "";
+    }
+
+    function handleUnauthorized() {
+      if (state.auth) {
+        addLog("Session abgelaufen. Bitte neu anmelden.", "error");
+      }
+      setSession(null);
+      showLogin("Nicht angemeldet oder Session abgelaufen.");
+    }
+
+    async function login(event) {
+      event.preventDefault();
+
+      const username = $("#login-username").value.trim();
+      const password = $("#login-password").value;
+      const submit = $("#login-submit");
+
+      if (!username || !password) {
+        $("#login-error").textContent = "Benutzername und Passwort eingeben.";
+        return;
+      }
+
+      submit.disabled = true;
+      $("#login-error").textContent = "";
+
+      try {
+        const response = await fetch("/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || typeof data.token !== "string" || !data.token) {
+          throw new Error(typeof data.detail === "string"
+            ? data.detail
+            : `Anmeldung fehlgeschlagen (HTTP ${response.status})`);
+        }
+
+        setSession({
+          token: data.token,
+          account: String(data.account || username),
+          expiresAt: data.expires_at || null
+        });
+        hideLogin();
+        addLog(`Angemeldet als ${state.auth.account}.`, "info");
+        toast("Anmeldung erfolgreich", "info");
+        loadHealth();
+      } catch (error) {
+        $("#login-error").textContent = error.message || "Anmeldung fehlgeschlagen";
+        $("#login-password").value = "";
+        $("#login-password").focus();
+      } finally {
+        submit.disabled = false;
+      }
+    }
+
+    async function logout() {
+      if (!state.auth) {
+        showLogin();
+        return;
+      }
+
+      const token = state.auth.token;
+      setSession(null);
+      addLog("Abgemeldet.", "info");
+
+      try {
+        await fetch("/logout", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      } catch (error) {
+        /* Server nicht erreichbar: lokal ist die Session trotzdem entfernt. */
+      }
+    }
+
+    async function toggleTrading() {
+      if (!state.auth) {
+        showLogin();
+        return;
+      }
+
+      const resume = state.tradingState === "halted";
+      if (!resume && !window.confirm("Trading global stoppen? Ausführungen bleiben blockiert, bis RESUME gedrückt wird.")) {
+        return;
+      }
+
+      const button = $("#halt-button");
+      button.disabled = true;
+
+      try {
+        await api(resume ? "/control/resume" : "/control/halt", "POST", {
+          reason: resume ? "Resume über Dashboard" : "Halt über Dashboard"
+        });
+        addLog(resume ? "Trading fortgesetzt (RESUME)." : "Trading gestoppt (HALT).", resume ? "info" : "error");
+        toast(resume ? "Trading fortgesetzt" : "Trading gestoppt", resume ? "info" : "error");
+      } catch (error) {
+        addLog(`Control-Fehler: ${error.message}`, "error");
+        toast(error.message, "error");
+      } finally {
+        button.disabled = false;
+        await loadHealth();
+      }
+    }
+
+    async function initAuth() {
+      const stored = readStoredSession();
+      setSession(stored);
+
+      if (!stored) {
+        showLogin();
+        return;
+      }
+
+      try {
+        await api("/control/status");
+      } catch (error) {
+        /* 401 behandelt api(); bei anderen Fehlern bleibt die Session bestehen. */
+      }
+    }
+
     async function api(path, method = "GET", body = null) {
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 45000);
 
       try {
+        const headers = body ? { "Content-Type": "application/json" } : {};
+        if (state.auth?.token) {
+          headers.Authorization = `Bearer ${state.auth.token}`;
+        }
+
         const response = await fetch(path, {
           method,
           signal: controller.signal,
-          headers: body ? { "Content-Type": "application/json" } : {},
+          headers,
           body: body ? JSON.stringify(body) : null
         });
 
         const data = await response.json().catch(() => ({}));
+
+        if (response.status === 401) {
+          handleUnauthorized();
+          throw new Error("Nicht angemeldet oder Session abgelaufen");
+        }
 
         if (!response.ok) {
           throw new Error(data.detail || `HTTP ${response.status}`);
@@ -2110,6 +2480,7 @@
 
         $("#mode-badge").textContent = mode === "live" ? "● LIVE-MODUS" : "● PAPER-MODUS";
         $("#mode-badge").className = `mode-badge ${mode === "live" ? "live" : "paper"}`;
+        renderTradingState(health.trading_state);
 
         $("#core-status").textContent = connected ? "● LINK AKTIV" : "◌ LINK GETRENNT";
         $("#core-status").style.color = connected ? COLORS.green : COLORS.red;
@@ -2614,6 +2985,13 @@
     $("#scan-button").addEventListener("click", scan);
     $("#auto-button").addEventListener("click", toggleAutoRefresh);
     $("#backtest-form").addEventListener("submit", runBacktest);
+    $("#login-form").addEventListener("submit", login);
+    $("#login-cancel").addEventListener("click", hideLogin);
+    $("#login-overlay").addEventListener("keydown", (event) => {
+      if (event.key === "Escape") hideLogin();
+    });
+    $("#auth-button").addEventListener("click", () => (state.auth ? logout() : showLogin()));
+    $("#halt-button").addEventListener("click", toggleTrading);
 
     window.addEventListener("resize", () => {
       const visibleResults = document.querySelectorAll("[id^='equity-']");
@@ -2635,6 +3013,7 @@
     loadHealth();
     loadProposals();
     window.setInterval(loadHealth, 30000);
+    initAuth();
     runBootSequence();
   </script>
 </body>

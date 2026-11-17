@@ -117,6 +117,14 @@ class StateStore:
                     key   TEXT PRIMARY KEY,
                     value REAL NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS control_state (
+                    id          INTEGER PRIMARY KEY CHECK (id = 1),
+                    state       TEXT NOT NULL,
+                    changed_by  TEXT,
+                    changed_at  TEXT,
+                    reason      TEXT
+                );
             """)
             # Equity-Peak initialisieren falls noch nicht vorhanden
             cur.execute(
@@ -320,6 +328,41 @@ class StateStore:
 
     # ── Housekeeping ──────────────────────────────────────────────────────────
 
+    # ── Control Plane (Halt/Resume) ───────────────────────────────────────────
+
+    def get_control_state(self) -> Optional[dict]:
+        """Globaler Trading-State oder None, wenn er nie gesetzt wurde."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT state, changed_by, changed_at, reason FROM control_state WHERE id = 1"
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def transition_control_state(
+        self,
+        *,
+        expected: str,
+        new_state: str,
+        changed_by: str,
+        reason: Optional[str] = None,
+        default_state: str = "running",
+    ) -> bool:
+        """Atomares Compare-and-Set: schreibt nur, wenn der aktuelle State `expected` ist."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT state FROM control_state WHERE id = 1"
+            ).fetchone()
+            current = row["state"] if row is not None else default_state
+            if current != expected:
+                return False
+            self._conn.execute(
+                "INSERT OR REPLACE INTO control_state (id, state, changed_by, changed_at, reason) "
+                "VALUES (1, ?, ?, ?, ?)",
+                (new_state, changed_by, _now_iso(), reason),
+            )
+            self._conn.commit()
+            return True
+
     def close(self) -> None:
         """SQLite-Verbindung schliessen."""
         with self._lock:
@@ -333,6 +376,7 @@ class StateStore:
                 DELETE FROM closed_positions;
                 DELETE FROM pnl_ledger;
                 DELETE FROM equity_meta;
+                DELETE FROM control_state;
             """)
             self._conn.execute(
                 "INSERT INTO equity_meta (key, value) VALUES (?, ?)",

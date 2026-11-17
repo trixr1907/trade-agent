@@ -22,6 +22,7 @@ from .models import (
     now_utc,
 )
 from .risk import position_size_usd, validate_proposal
+from .control import ControlPlane
 from .state import OpenPosition, StateStore, get_state_store
 
 
@@ -171,6 +172,21 @@ def execute(
         state = get_state_store()
 
     symbol = proposal.signal.symbol
+
+    # ── Fail-closed: globale Control Plane (Halt/Resume) ──────────────────────
+    if ControlPlane(state).is_halted():
+        return ExecutionResult(
+            proposal_id=proposal_id,
+            symbol=symbol,
+            side=proposal.signal.direction.value,
+            qty=0.0,
+            price=proposal.signal.price,
+            notional_usd=0.0,
+            mode="paper" if not cfg.trading.is_live else "live",
+            order_id="",
+            status="rejected",
+            raw={"error": "Trading gestoppt (Control Plane)"},
+        )
 
     # ── Fail-closed: Positions-Limits ─────────────────────────────────────────
     if state.open_count() >= cfg.live_limits.max_open_positions:
