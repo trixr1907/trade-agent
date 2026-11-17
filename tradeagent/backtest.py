@@ -1,4 +1,4 @@
-"""Walk-Forward-Backtest-Engine mit Deflated Sharpe Ratio (DSR).
+"""Walk-Forward-Backtest-Engine mit Deflated Sharpe Ratio (DSR) und Cost-Modell.
 
 Verwendung:
     from tradeagent.backtest import run_walk_forward
@@ -33,22 +33,48 @@ from .signals import analyze_symbol
 @dataclass
 class WalkForwardConfig:
     """Parameter für die Walk-Forward-Aufteilung."""
-    # Anteil IS / OOS  (z.B. 0.7 = 70 % IS, 30 % OOS)
     is_ratio: float = 0.70
-    # Anzahl der Fenster (Folds)
     n_folds: int = 5
-    # Mindest-Bars pro Fenster (IS + OOS)
     min_bars_per_fold: int = 60
-    # Mindest-Score für Signale
     min_signal_score: int = 50
-    # Risiko pro Trade (USD) — wird aus RiskConfig übernommen falls None
     risk_per_trade_usd: Optional[float] = None
-    # Stop/Target-Multiplikatoren (ATR)
     atr_stop_mult: float = 2.5
-    # Annualisierungsfaktor (252 Handelstage, bei 1h → 252*24)
     bars_per_year: int = 252
-    # DSR: Trials (wie viele alternative Strategien wurden implizit getestet)
     dsr_trials: int = 20
+
+
+# ─── Cost-Modell ──────────────────────────────────────────────────────────────
+
+@dataclass
+class CostModel:
+    """Transaktionskosten: Taker-Gebühr + Slippage.
+
+    taker_fee:    Anteil der Positionsgrösse (z.B. 0.001 = 0.1 % Bitget Taker).
+    slippage_bps: Slippage in Basispunkten, wird auf Entry- und Exit-Preis
+                  angewendet (gegen den Trader).
+    """
+    taker_fee: float = 0.001      # 0.1 % Taker-Fee (Bitget Standard)
+    slippage_bps: float = 3.0     # 3 Basispunkte Slippage
+
+    @classmethod
+    def zero(cls) -> "CostModel":
+        """Kein Kosten-Modell (Gross-Modus)."""
+        return cls(taker_fee=0.0, slippage_bps=0.0)
+
+
+def _exec_price(price: float, direction: SignalDirection, is_entry: bool, slippage_bps: float) -> float:
+    """Wendet Slippage auf einen Ausführungspreis an (immer gegen den Trader).
+
+    BUY  Entry → Preis steigt  (teurer)
+    BUY  Exit  → Preis fällt  (billiger)
+    SELL Entry → Preis fällt  (billiger short)
+    SELL Exit  → Preis steigt (teurer Cover)
+    """
+    factor = slippage_bps / 10_000
+    if direction == SignalDirection.BUY:
+        return price * (1 + factor) if is_entry else price * (1 - factor)
+    else:
+        return price * (1 - factor) if is_entry else price * (1 + factor)
 
 
 # ─── Trade-Simulation ─────────────────────────────────────────────────────────
@@ -64,9 +90,11 @@ class SimTrade:
     entry_bar: int
     exit_bar: Optional[int] = None
     exit_price: Optional[float] = None
-    pnl_usd: float = 0.0
-    pnl_r: float = 0.0        # Return in Risk-Einheiten (R)
-    exit_reason: str = ""     # "target" | "stop" | "eod"
+    gross_pnl: float = 0.0
+    cost_usd: float = 0.0
+    pnl_usd: float = 0.0        # Net PnL (nach Kosten)
+    pnl_r: float = 0.0          # Net Return in Risk-Einheiten (R)
+    exit_reason: str = ""       # "target" | "stop" | "eod"
     score: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
@@ -78,13 +106,20 @@ def _simulate_trade(
     df: pd.DataFrame,
     entry_bar_idx: int,
     risk_usd: float,
+    cost_model: Optional[CostModel] = None,
 ) -> SimTrade:
     """Simuliert einen Trade nach Signal ab entry_bar_idx im DF."""
+    if cost_model is None:
+        cost_model = CostModel.zero()
+
     direction = signal.direction
-    entry_price = signal.price
+    symbol = signal.symbol
+
+    # Entry-Preis mit Slippage
+    raw_entry = signal.price
+    entry_price = _exec_price(raw_entry, direction, is_entry=True, slippage_bps=cost_model.slippage_bps)
     stop_price = signal.stop_price
     target_price = signal.target_price
-    symbol = signal.symbol
 
     if direction == SignalDirection.BUY:
         risk_per_unit = entry_price - stop_price
@@ -106,6 +141,9 @@ def _simulate_trade(
         score=signal.score,
     )
 
+    raw_exit_price: Optional[float] = None
+    exit_reason = "eod"
+
     # Folgebars durchlaufen
     for i in range(entry_bar_idx + 1, len(df)):
         bar = df.iloc[i]
@@ -114,42 +152,52 @@ def _simulate_trade(
 
         if direction == SignalDirection.BUY:
             if low <= stop_price:
+                raw_exit_price = stop_price
                 trade.exit_bar = i
-                trade.exit_price = stop_price
-                trade.pnl_usd = (stop_price - entry_price) * qty
                 trade.exit_reason = "stop"
                 break
             if high >= target_price:
+                raw_exit_price = target_price
                 trade.exit_bar = i
-                trade.exit_price = target_price
-                trade.pnl_usd = (target_price - entry_price) * qty
                 trade.exit_reason = "target"
                 break
         else:  # SELL
             if high >= stop_price:
+                raw_exit_price = stop_price
                 trade.exit_bar = i
-                trade.exit_price = stop_price
-                trade.pnl_usd = (entry_price - stop_price) * qty
                 trade.exit_reason = "stop"
                 break
             if low <= target_price:
+                raw_exit_price = target_price
                 trade.exit_bar = i
-                trade.exit_price = target_price
-                trade.pnl_usd = (entry_price - target_price) * qty
                 trade.exit_reason = "target"
                 break
 
     # Kein Exit gefunden → End-of-Data
-    if trade.exit_bar is None:
-        last_price = float(df["close"].iloc[-1])
+    if raw_exit_price is None:
+        raw_exit_price = float(df["close"].iloc[-1])
         trade.exit_bar = len(df) - 1
-        trade.exit_price = last_price
-        if direction == SignalDirection.BUY:
-            trade.pnl_usd = (last_price - entry_price) * qty
-        else:
-            trade.pnl_usd = (entry_price - last_price) * qty
         trade.exit_reason = "eod"
 
+    # Exit-Preis mit Slippage
+    exit_price = _exec_price(raw_exit_price, direction, is_entry=False, slippage_bps=cost_model.slippage_bps)
+    trade.exit_price = exit_price
+
+    # Gross PnL (ohne Gebühren)
+    if direction == SignalDirection.BUY:
+        gross = (exit_price - entry_price) * qty
+    else:
+        gross = (entry_price - exit_price) * qty
+    trade.gross_pnl = gross
+
+    # Taker-Gebühr: beide Seiten (Entry-Notional + Exit-Notional)
+    entry_notional = entry_price * qty
+    exit_notional = exit_price * qty
+    cost = (entry_notional + exit_notional) * cost_model.taker_fee
+    trade.cost_usd = cost
+
+    # Net PnL und R
+    trade.pnl_usd = gross - cost
     trade.pnl_r = trade.pnl_usd / risk_usd if risk_usd > 0 else 0.0
     return trade
 
@@ -169,6 +217,7 @@ class FoldMetrics:
     sortino: float
     max_drawdown_pct: float
     profit_factor: float
+    cost_usd: float = 0.0
     trades: List[SimTrade] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -177,59 +226,60 @@ class FoldMetrics:
         return d
 
 
-def _compute_metrics(trades: List[SimTrade], fold: int, is_bars: int, oos_bars: int, bars_per_year: int) -> FoldMetrics:
+def _compute_metrics(
+    trades: List[SimTrade],
+    fold: int,
+    is_bars: int,
+    oos_bars: int,
+    bars_per_year: int,
+) -> FoldMetrics:
     if not trades:
         return FoldMetrics(
             fold=fold, is_bars=is_bars, oos_bars=oos_bars,
             n_trades=0, win_rate=0.0, avg_r=0.0, total_r=0.0,
-            sharpe=0.0, sortino=0.0, max_drawdown_pct=0.0, profit_factor=0.0,
-            trades=[],
+            sharpe=0.0, sortino=0.0, max_drawdown_pct=0.0,
+            profit_factor=0.0, cost_usd=0.0, trades=[],
         )
 
     pnl_r = np.array([t.pnl_r for t in trades])
-    win_rate = float(np.sum(pnl_r > 0) / len(pnl_r)) if len(pnl_r) > 0 else 0.0
+    total_cost = float(sum(t.cost_usd for t in trades))
+    win_rate = float(np.sum(pnl_r > 0) / len(pnl_r))
     avg_r = float(np.mean(pnl_r))
     total_r = float(np.sum(pnl_r))
 
-    # Profit Factor (wird vor dem Early-Return benötigt)
     wins = pnl_r[pnl_r > 0]
     losses = pnl_r[pnl_r <= 0]
     gross_profit = float(np.sum(wins)) if len(wins) > 0 else 0.0
     gross_loss = float(abs(np.sum(losses))) if len(losses) > 0 else 1e-9
     profit_factor = gross_profit / gross_loss
 
-    # Sharpe (annualisiert auf bars_per_year-Basis)
-    # Mindestens 2 Trades nötig für sinnvollen Sharpe
     if len(pnl_r) < 2:
         return FoldMetrics(
             fold=fold, is_bars=is_bars, oos_bars=oos_bars,
             n_trades=len(trades), win_rate=win_rate, avg_r=avg_r,
             total_r=total_r, sharpe=0.0, sortino=0.0,
             max_drawdown_pct=0.0, profit_factor=profit_factor,
-            trades=trades,
+            cost_usd=total_cost, trades=trades,
         )
+
     std = float(np.std(pnl_r, ddof=1))
-    std = max(std, 1e-6)  # Clamp gegen Division durch 0
+    std = max(std, 1e-6)
     ann_factor = math.sqrt(max(bars_per_year / max(oos_bars, 1) * len(pnl_r), 1.0))
-    ann_factor = min(ann_factor, 100.0)  # Cap gegen astronomische Werte
+    ann_factor = min(ann_factor, 100.0)
     sharpe = float(np.clip(avg_r / std * ann_factor, -50.0, 50.0))
 
-    # Sortino (nur downside deviation)
     downside = losses if len(losses) > 0 else np.array([0.0])
     downside_std = float(np.std(downside, ddof=1)) if len(downside) > 1 else max(std, 1e-6)
     downside_std = max(downside_std, 1e-6)
     sortino = float(np.clip(avg_r / downside_std * ann_factor, -50.0, 50.0))
 
-    # Max Drawdown (relativ zum kumulierten Peak, absolut in R)
     cum = np.cumsum(pnl_r)
     running_max = np.maximum.accumulate(cum)
     dd = running_max - cum
     max_dd_r = float(np.max(dd)) if len(dd) > 0 else 0.0
-    # Normierung: relativ zum Maximum des absoluten kumulierten Returns
-    # Wenn kein einziger Bar profitabel war, bleibt DD = 0 (kein Peak)
     abs_peak = float(np.max(np.abs(running_max)))
     max_dd_pct = (max_dd_r / abs_peak * 100) if abs_peak > 1e-6 else 0.0
-    max_dd_pct = min(max_dd_pct, 100.0)  # Cap bei 100% (kein Over-100%-DD möglich)
+    max_dd_pct = min(max_dd_pct, 100.0)
 
     return FoldMetrics(
         fold=fold,
@@ -243,28 +293,23 @@ def _compute_metrics(trades: List[SimTrade], fold: int, is_bars: int, oos_bars: 
         sortino=sortino,
         max_drawdown_pct=max_dd_pct,
         profit_factor=profit_factor,
+        cost_usd=total_cost,
         trades=trades,
     )
 
 
 # ─── Deflated Sharpe Ratio ─────────────────────────────────────────────────────
 
-def _deflated_sharpe_ratio(sharpe_obs: float, sharpe_values: List[float], n: int, trials: int) -> float:
-    """
-    DSR nach Bailey & López de Prado (2014).
-    Korrigiert den beobachteten Sharpe für Multiple-Testing-Bias.
-
-    DSR = Φ( (SR_obs - SR*) * sqrt(n-1) / sqrt(1 - γ3*SR_obs + (γ4-1)/4 * SR_obs²) )
-
-    SR* = Erwarteter Maximum-Sharpe unter H0 (Gauß-Annäherung).
-    γ3 / γ4 = Skewness / Kurtosis der R-Verteilung.
-
-    Gibt den p-Wert (0–1) zurück: > 0.95 = signifikant.
-    """
+def _deflated_sharpe_ratio(
+    sharpe_obs: float,
+    sharpe_values: List[float],
+    n: int,
+    trials: int,
+) -> float:
+    """DSR nach Bailey & López de Prado (2014). Gibt p-Wert (0–1) zurück."""
     if n < 4 or not sharpe_values:
         return 0.0
 
-    # Erwarteter Max-Sharpe unter H0 (Euler-Mascheroni-Annäherung)
     euler_gamma = 0.5772156649
     if trials > 1:
         sr_star = (
@@ -277,7 +322,7 @@ def _deflated_sharpe_ratio(sharpe_obs: float, sharpe_values: List[float], n: int
     r_arr = np.array(sharpe_values)
     skew = float(pd.Series(r_arr).skew()) if len(r_arr) > 2 else 0.0
     kurt = float(pd.Series(r_arr).kurt()) if len(r_arr) > 3 else 3.0
-    excess_kurt = kurt  # pandas.kurt() gibt Excess-Kurtosis zurück
+    excess_kurt = kurt
 
     denom = math.sqrt(
         max(1e-9, 1 - skew * sharpe_obs + (excess_kurt / 4) * sharpe_obs ** 2)
@@ -287,12 +332,11 @@ def _deflated_sharpe_ratio(sharpe_obs: float, sharpe_values: List[float], n: int
 
 
 def _ppf_normal(p: float) -> float:
-    """Inverse Normalverteilung (Rational Approximation, Abramowitz & Stegun)."""
+    """Inverse Normalverteilung (Beasley-Springer-Moro)."""
     if p <= 0:
         return -8.0
     if p >= 1:
         return 8.0
-    # Beasley-Springer-Moro Annäherung
     a = [0, -3.969683028665376e+01, 2.209460984245205e+02,
          -2.759285104469687e+02, 1.383577518672690e+02,
          -3.066479806614716e+01, 2.506628277459239e+00]
@@ -335,7 +379,6 @@ class BacktestResult:
     total_bars: int
     n_folds: int
     folds: List[FoldMetrics]
-    # Aggregierte OOS-Metriken
     oos_sharpe: float
     oos_sortino: float
     oos_win_rate: float
@@ -343,9 +386,12 @@ class BacktestResult:
     oos_max_drawdown_pct: float
     oos_profit_factor: float
     oos_n_trades: int
-    # DSR
-    dsr: float                    # 0–1 (p-Wert)
-    dsr_significant: bool         # True wenn DSR > 0.95
+    oos_cost_usd: float
+    # Cost-Modell-Parameter (für Nachvollziehbarkeit im Report)
+    cost_taker_fee: float
+    cost_slippage_bps: float
+    dsr: float
+    dsr_significant: bool
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> Dict[str, Any]:
@@ -355,136 +401,181 @@ class BacktestResult:
 
     def summary(self) -> str:
         lines = [
-            f"=== Backtest: {self.symbol} @ {self.timeframe} ===",
-            f"Bars gesamt : {self.total_bars}",
-            f"Folds       : {self.n_folds}",
-            f"OOS Trades  : {self.oos_n_trades}",
-            f"Win-Rate    : {self.oos_win_rate*100:.1f}%",
-            f"Avg R       : {self.oos_total_r/max(self.oos_n_trades,1):.3f}R",
-            f"Sharpe (OOS): {self.oos_sharpe:.3f}",
-            f"Sortino     : {self.oos_sortino:.3f}",
-            f"Max DD      : {self.oos_max_drawdown_pct:.1f}%",
-            f"Profit F.   : {self.oos_profit_factor:.2f}",
-            f"DSR         : {self.dsr:.4f} ({'✅ SIGNIFIKANT' if self.dsr_significant else '❌ nicht signifikant'})",
+            f"Symbol  : {self.symbol} @ {self.timeframe}",
+            f"Bars    : {self.total_bars}",
+            f"Folds   : {self.n_folds}",
+            f"Trades  : {self.oos_n_trades}",
+            f"Win-Rate: {self.oos_win_rate:.1%}",
+            f"Sharpe  : {self.oos_sharpe:.3f}",
+            f"Sortino : {self.oos_sortino:.3f}",
+            f"MaxDD   : {self.oos_max_drawdown_pct:.1f}%",
+            f"Profit F: {self.oos_profit_factor:.2f}",
+            f"Kosten  : ${self.oos_cost_usd:.2f}  "
+            f"(Fee {self.cost_taker_fee*100:.2f}% + {self.cost_slippage_bps:.0f} bps Slippage)",
+            f"DSR     : {self.dsr:.4f} "
+            f"({'✅ signifikant' if self.dsr_significant else '❌ nicht signifikant'})",
         ]
+        for f in self.folds:
+            lines.append(
+                f"  Fold {f.fold}: {f.n_trades} Trades | Win {f.win_rate:.0%} "
+                f"| Sharpe {f.sharpe:.2f} | AvgR {f.avg_r:.3f} "
+                f"| Cost ${f.cost_usd:.2f}"
+            )
         return "\n".join(lines)
 
 
 def run_walk_forward(
-    symbol: str,
     df: pd.DataFrame,
-    cfg: WalkForwardConfig,
+    symbol: str,
+    timeframe: str,
+    config: Optional[WalkForwardConfig] = None,
+    risk_usd: float = 20.0,
+    cost_model: Optional[CostModel] = None,
 ) -> BacktestResult:
-    """
-    Führt einen Walk-Forward-Backtest auf dem gegebenen OHLCV-DataFrame aus.
+    """Führt einen Walk-Forward-Backtest auf den übergebenen OHLCV-Daten durch.
 
     Args:
-        symbol: Handelssymbol (z.B. "BTC/USDT")
-        df: OHLCV-DataFrame (Spalten: open/high/low/close/volume)
-        cfg: WalkForwardConfig-Parameter
-
-    Returns:
-        BacktestResult mit allen Fold-Metriken + DSR
+        df:         OHLCV DataFrame (Spalten: open, high, low, close, volume)
+        symbol:     Handelspaar, z.B. "BTC/USDT"
+        timeframe:  Zeitrahmen, z.B. "1h"
+        config:     WalkForwardConfig (optional, Default wird verwendet)
+        risk_usd:   Risiko pro Trade in USD
+        cost_model: CostModel (optional; Default = Bitget Taker 0.1% + 3 bps)
     """
-    total_bars = len(df)
-    risk_usd = cfg.risk_per_trade_usd or 20.0
+    if config is None:
+        config = WalkForwardConfig()
+    if cost_model is None:
+        cost_model = CostModel()
 
-    bars_per_fold = total_bars // cfg.n_folds
-    if bars_per_fold < cfg.min_bars_per_fold:
+    total_bars = len(df)
+    fold_size = total_bars // config.n_folds
+    if fold_size < config.min_bars_per_fold:
         raise ValueError(
-            f"Zu wenig Bars ({total_bars}) für {cfg.n_folds} Folds "
-            f"(min {cfg.min_bars_per_fold} pro Fold)."
+            f"Zu wenige Bars für {config.n_folds} Folds "
+            f"(min {config.min_bars_per_fold} pro Fold, got {fold_size})."
         )
 
-    folds: List[FoldMetrics] = []
+    effective_risk = config.risk_per_trade_usd if config.risk_per_trade_usd else risk_usd
+    fold_metrics: List[FoldMetrics] = []
     all_oos_trades: List[SimTrade] = []
-    all_oos_sharpe_values: List[float] = []
 
-    for fold_idx in range(cfg.n_folds):
-        start = fold_idx * bars_per_fold
-        end = start + bars_per_fold if fold_idx < cfg.n_folds - 1 else total_bars
+    for fold_idx in range(config.n_folds):
+        start = fold_idx * fold_size
+        end = start + fold_size if fold_idx < config.n_folds - 1 else total_bars
+        fold_df = df.iloc[start:end].reset_index(drop=True)
+        n_bars = len(fold_df)
 
-        is_end = start + int((end - start) * cfg.is_ratio)
-        is_df = df.iloc[start:is_end].copy()
-        oos_df = df.iloc[is_end:end].copy()
+        is_end = int(n_bars * config.is_ratio)
+        is_df = fold_df.iloc[:is_end]
+        oos_df = fold_df.iloc[is_end:].reset_index(drop=True)
 
         if len(oos_df) < 10:
-            continue
+            continue  # Zu wenige OOS-Bars
 
-        # Signale auf dem OOS-Fenster erzeugen
-        # (IS wird nur zur Warm-up-Bestimmung genutzt — Indikatoren brauchen
-        #  genügend History, daher geben wir IS+OOS als Context und simulieren
-        #  nur auf OOS-Bars.)
-        context_df = df.iloc[start:end].copy()
-        is_bars_count = len(is_df)
+        # Signale im OOS-Fenster generieren
         oos_trades: List[SimTrade] = []
-
-        # Jeden OOS-Bar als möglichen Einstiegspunkt prüfen
-        active_trade: Optional[SimTrade] = None
-        last_signal_bar = -99  # Cooldown: kein Signal sofort nach Signal
-
-        for oos_bar_i, bar_pos in enumerate(range(is_bars_count, len(context_df))):
-            # Cooldown: mindestens 3 Bars zwischen Signalen
-            if active_trade is not None:
-                if active_trade.exit_bar is None or bar_pos <= active_trade.exit_bar:
-                    continue
-
-            if bar_pos - last_signal_bar < 3:
+        for bar_idx in range(len(oos_df) - 1):
+            window = oos_df.iloc[: bar_idx + 1]
+            if len(window) < 20:
+                continue  # Mindestfenster für Indikatoren
+            try:
+                result = analyze_symbol(
+                    df=window,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    min_score=config.min_signal_score,
+                )
+            except Exception:
                 continue
 
-            # Snapshot aus den letzten [bar_pos] Bars berechnen
-            window = context_df.iloc[max(0, bar_pos - 50):bar_pos + 1]
-            if len(window) < 35:
+            if result is None or result.signal is None:
                 continue
 
-            sig = analyze_symbol(symbol, window)
-            if sig is None or sig.score < cfg.min_signal_score:
-                continue
-
-            last_signal_bar = bar_pos
-            trade = _simulate_trade(sig, context_df, bar_pos, risk_usd)
-            if trade.exit_bar is not None and trade.exit_bar > bar_pos:
-                oos_trades.append(trade)
-                active_trade = trade
+            sig = result.signal
+            trade = _simulate_trade(
+                signal=sig,
+                df=oos_df,
+                entry_bar_idx=bar_idx,
+                risk_usd=effective_risk,
+                cost_model=cost_model,
+            )
+            oos_trades.append(trade)
 
         metrics = _compute_metrics(
-            oos_trades, fold_idx + 1, len(is_df), len(oos_df), cfg.bars_per_year
+            trades=oos_trades,
+            fold=fold_idx + 1,
+            is_bars=len(is_df),
+            oos_bars=len(oos_df),
+            bars_per_year=config.bars_per_year,
         )
-        folds.append(metrics)
+        fold_metrics.append(metrics)
         all_oos_trades.extend(oos_trades)
-        if metrics.n_trades > 0:
-            all_oos_sharpe_values.append(metrics.sharpe)
 
-    # Aggregierte OOS-Metriken
-    all_pnl_r = [t.pnl_r for t in all_oos_trades]
-    agg_metrics = _compute_metrics(
-        all_oos_trades, 0, 0,
-        total_bars - int(total_bars * cfg.is_ratio),
-        cfg.bars_per_year,
-    )
+    # ── Aggregierte OOS-Metriken ───────────────────────────────────────────────
+    if not all_oos_trades:
+        all_pnl_r = np.array([0.0])
+    else:
+        all_pnl_r = np.array([t.pnl_r for t in all_oos_trades])
+
+    total_cost_usd = float(sum(t.cost_usd for t in all_oos_trades))
+
+    oos_win_rate = float(np.sum(all_pnl_r > 0) / len(all_pnl_r)) if len(all_pnl_r) > 0 else 0.0
+    oos_total_r = float(np.sum(all_pnl_r))
+
+    wins_all = all_pnl_r[all_pnl_r > 0]
+    losses_all = all_pnl_r[all_pnl_r <= 0]
+    gp = float(np.sum(wins_all)) if len(wins_all) > 0 else 0.0
+    gl = float(abs(np.sum(losses_all))) if len(losses_all) > 0 else 1e-9
+    oos_profit_factor = gp / gl
+
+    if len(all_pnl_r) >= 2:
+        std_all = max(float(np.std(all_pnl_r, ddof=1)), 1e-6)
+        avg_all = float(np.mean(all_pnl_r))
+        total_oos_bars = sum(f.oos_bars for f in fold_metrics) or 1
+        ann = min(math.sqrt(max(config.bars_per_year / total_oos_bars * len(all_pnl_r), 1.0)), 100.0)
+        oos_sharpe = float(np.clip(avg_all / std_all * ann, -50.0, 50.0))
+
+        down_all = losses_all if len(losses_all) > 0 else np.array([0.0])
+        ds_std = float(np.std(down_all, ddof=1)) if len(down_all) > 1 else std_all
+        ds_std = max(ds_std, 1e-6)
+        oos_sortino = float(np.clip(avg_all / ds_std * ann, -50.0, 50.0))
+    else:
+        oos_sharpe = 0.0
+        oos_sortino = 0.0
+
+    cum_all = np.cumsum(all_pnl_r)
+    rm_all = np.maximum.accumulate(cum_all)
+    dd_all = rm_all - cum_all
+    max_dd_r = float(np.max(dd_all)) if len(dd_all) > 0 else 0.0
+    abs_peak_all = float(np.max(np.abs(rm_all)))
+    oos_max_dd_pct = min((max_dd_r / abs_peak_all * 100) if abs_peak_all > 1e-6 else 0.0, 100.0)
 
     # DSR
+    fold_sharpes = [f.sharpe for f in fold_metrics if f.n_trades > 0]
     dsr = _deflated_sharpe_ratio(
-        agg_metrics.sharpe,
-        all_oos_sharpe_values,
-        len(all_oos_trades),
-        cfg.dsr_trials,
+        sharpe_obs=oos_sharpe,
+        sharpe_values=fold_sharpes,
+        n=len(all_oos_trades),
+        trials=config.dsr_trials,
     )
 
     return BacktestResult(
-        id=str(uuid.uuid4())[:8],
+        id=str(uuid.uuid4()),
         symbol=symbol,
-        timeframe="unknown",   # wird vom Aufrufer gesetzt
+        timeframe=timeframe,
         total_bars=total_bars,
-        n_folds=len(folds),
-        folds=folds,
-        oos_sharpe=agg_metrics.sharpe,
-        oos_sortino=agg_metrics.sortino,
-        oos_win_rate=agg_metrics.win_rate,
-        oos_total_r=agg_metrics.total_r,
-        oos_max_drawdown_pct=agg_metrics.max_drawdown_pct,
-        oos_profit_factor=agg_metrics.profit_factor,
-        oos_n_trades=agg_metrics.n_trades,
+        n_folds=len(fold_metrics),
+        folds=fold_metrics,
+        oos_sharpe=oos_sharpe,
+        oos_sortino=oos_sortino,
+        oos_win_rate=oos_win_rate,
+        oos_total_r=oos_total_r,
+        oos_max_drawdown_pct=oos_max_dd_pct,
+        oos_profit_factor=oos_profit_factor,
+        oos_n_trades=len(all_oos_trades),
+        oos_cost_usd=total_cost_usd,
+        cost_taker_fee=cost_model.taker_fee,
+        cost_slippage_bps=cost_model.slippage_bps,
         dsr=dsr,
         dsr_significant=dsr > 0.95,
     )

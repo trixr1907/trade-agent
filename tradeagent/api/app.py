@@ -21,7 +21,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from ..backtest import WalkForwardConfig, run_walk_forward
+from ..backtest import CostModel, WalkForwardConfig, run_walk_forward
 from ..config import load_config
 from ..data import fetch_ohlcv
 from ..graph import (
@@ -70,6 +70,8 @@ class BacktestRequest(BaseModel):
     is_ratio: float = 0.70
     min_signal_score: int = 50
     risk_usd: Optional[float] = None
+    taker_fee: float = 0.001       # 0.1 % Bitget Taker
+    slippage_bps: float = 3.0      # 3 Basispunkte
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -149,21 +151,30 @@ def backtest_endpoint(req: BacktestRequest):
         risk_per_trade_usd=req.risk_usd,
         bars_per_year=252 * (24 if "h" in req.timeframe else 1),
     )
-    results = []
-    errors = []
+    cost_model = CostModel(
+        taker_fee=req.taker_fee,
+        slippage_bps=req.slippage_bps,
+    )
+    out: dict = {}
     for symbol in req.symbols:
         try:
             df = fetch_ohlcv(symbol, timeframe=req.timeframe, limit=req.limit, cfg=cfg.exchange)
         except Exception as e:
-            errors.append({"symbol": symbol, "error": str(e)})
+            out[symbol] = {"error": str(e)}
             continue
         try:
-            result = run_walk_forward(symbol, df, wf_cfg)
-            result.timeframe = req.timeframe
-            results.append(result.to_dict())
+            result = run_walk_forward(
+                df=df,
+                symbol=symbol,
+                timeframe=req.timeframe,
+                config=wf_cfg,
+                risk_usd=req.risk_usd or 20.0,
+                cost_model=cost_model,
+            )
+            out[symbol] = result.to_dict()
         except ValueError as e:
-            errors.append({"symbol": symbol, "error": str(e)})
-    return {"results": results, "errors": errors}
+            out[symbol] = {"error": str(e)}
+    return out
 
 
 @app.get("/health")
