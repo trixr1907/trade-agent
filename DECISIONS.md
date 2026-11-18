@@ -317,6 +317,16 @@ Die Konfiguration wird nach dem Blick auf die Zahlen nicht geändert.
   4. Liegen weniger als drei getrennte Zeiträume mit Daten vor, wird das Ergebnis nicht als robust bewertet.
   5. Ein Ergebnis unter der Schwelle wird als solches berichtet.
 
+#### Ergebnis: Robustheitsmessung 1h (Pre-Registration ce6093a)
+Gültige Messung nach den vorab festgelegten Regeln. Alle 1h-Läufe haben die Abnahme erfüllt.
+
+- Trades (netto, gepoolt über 3 Symbole und 3 Zeiträume, 23 Wochen-Blöcke): Basis 4778, mit SMC 2195.
+- Avg R Basis: −0,116, 95-%-CI [−0,254; +0,012].
+- Δ Avg R (SMC − Basis): −0,045, 95-%-CI [−0,120; +0,032].
+- Verdikt: Die Basis ist nicht positiv belegt, weil die untere CI-Grenze unter 0 liegt. SMC ist nicht von 0 unterscheidbar, weil das Δ-CI 0 enthält. Der Merge bleibt ausgesetzt.
+
+**4h: ungültig.** In sechs Läufen ist die Abnahme 2 nicht erfüllt, weil der max_hold-Zähler 0 ist: ETH/USDT 4h Zeitraum C (brutto und netto, mit und ohne SMC) sowie SOL/USDT 4h Zeitraum C (brutto und netto, mit SMC). Für 4h gibt es deshalb kein Ergebnis und kein Verdikt. Die Hypothese „OOS-Fenster zu kurz“ ist widerlegt: Die OOS-Fenster liegen bei 73 bis 74 Bars, also über 24. Die Ursache der Nullzähler ist offen. Eine Re-Registration erfolgt erst nach der Ursachenanalyse und mit eigenem Pre-Registration-Commit.
+
 ## Sicherheits-Prinzipien (von Tag 1)
 - API-Keys **nur** aus Env/Secrets — niemals im Quellcode.
 - Client-Eingaben niemals als Trust-Quelle für Ausführung.
