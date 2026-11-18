@@ -416,3 +416,10 @@ Diese Festlegung wird vor der ersten Messung committet. Die Konfiguration wird n
 - **Berichtsregel (neu in dieser Pre-Registration):** Ergebnisse werden je Zeitraum und gepoolt berichtet. Eine Robustheitsaussage zum 4h-Verdikt setzt gültige Läufe in allen vier Zeiträumen (A bis D) voraus. Ist ein Zeitraum ungültig, wird nur berichtet.
 - **Nicht Teil des Verdikts:** Sharpe, Sortino und DSR.
 - **Merge:** Bleibt ausgesetzt.
+
+## Resume-Gate: automatisch aufgelöste Alarme blockieren bis zur Bestätigung (Direktive 5C)
+
+- **Entscheidung:** resume_trading prüft open_alarms(), also acknowledged_at IS NULL. Ein Alarm, den der Monitor automatisch auf resolved setzt, behält acknowledged_at = NULL. Er blockiert /control/resume, bis ihn jemand über POST /control/alarms/{id}/ack bestätigt.
+- **Begründung:** Das Gate hängt an der Bestätigung durch einen Menschen, nicht am Zustand der Bedingung. Auto-Resolve heisst, dass die Bedingung weg ist. Es heisst nicht, dass jemand den Vorfall gesehen hat. Das ist strenger als die Wortwahl der Direktive („offene, nicht bestätigte Alarme“) und folgt dem Fail-closed-Prinzip aus Entscheidung 3.
+- **Folge:** acknowledge_alarm prüft nur acknowledged_at IS NULL und funktioniert deshalb auch bei Alarmen im Zustand resolved. Der Zustand bleibt dabei resolved. Bereits bestätigte Alarme fasst Auto-Resolve nicht an. Sie werden manuell über /control/alarms/{id}/resolve aufgelöst.
+- **Test:** test_monitor_loop.py prüft den Ablauf im laufenden Monitor: Verstoß, Alarm, Auto-Resolve, Gate blockiert weiter, Bestätigung, Gate frei.
