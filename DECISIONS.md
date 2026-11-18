@@ -377,3 +377,27 @@ Der Korrektur-Eintrag oben (Commit 57dca48) ist falsch. Die Aussage, das 24-Bar-
 - **Δ Avg R (SMC − Basis):** −0,065, 95-%-CI [−0,226; +0,079].
 - **Verdikt (nach den Regeln oben):** Die Basis ist nicht positiv belegt, weil die untere CI-Grenze des Avg R (−0,317) unter 0 liegt. SMC ist nicht von der Basis unterscheidbar, weil das Δ-CI [−0,226; +0,079] die 0 enthält. Der Merge bleibt ausgesetzt. Die Pre-Registration 2 nennt keine Mindestzahl an Zeiträumen. Die Aussagekraft ist trotzdem begrenzt, weil nur ein Zeitraum (D) ausgewertet wurde.
 - **Merge:** Bleibt ausgesetzt.
+
+## Pre-Registration 3: 4h-Messung der Zeiträume A bis C mit n_folds=2 (vor dem ersten Lauf committet)
+
+Diese Festlegung wird vor der ersten Messung committet. Die Konfiguration wird nach dem Blick auf die Zahlen nicht geändert.
+
+- **Zweck:** Die 4h-Robustheit stützt sich bisher auf einen Zeitraum (D, Pre-Registration 2). Die 4h-Läufe für A bis C unter ce6093a sind ungültig (n_folds=3, rund 73 OOS-Bars je Fold). Diese Messung wiederholt sie mit der Konfiguration von Pre-Registration 2.
+- **Zeiträume (4h, UTC, Start und Ende inklusive):**
+  - A: 2022-05-01 bis 2022-08-31 (rund 738 Bars je Symbol)
+  - B: 2023-06-01 bis 2023-09-30 (rund 732 Bars je Symbol)
+  - C: 2024-01-01 bis 2024-04-30 (rund 726 Bars je Symbol)
+  - A, B, C und D (2024-05-01 bis 2024-10-31) überlappen sich nicht.
+- **Symbole:** BTC/USDT, ETH/USDT, SOL/USDT.
+- **Konfiguration:** wie Pre-Registration 2: n_folds=2, is_ratio 0,70, min_signal_score 50, max_hold 24 Bars. Die einzige Abweichung ist der Zeitraum. Er ist mit rund 4 statt 6 Monaten kürzer, daher liegen die OOS-Fenster bei rund 109 bis 111 statt 166 Bars je Fold (Bars × 0,3 / 2).
+- **Erwartung (nicht bindend):** OOS rund 110 Bars je Fold. Zum eod-Anteil gibt es keine Erwartung. Der Lauf berichtet ihn ohne Deutung.
+- **Daten:** Die Daten für A bis C wurden bereits unter ce6093a ausgewertet und sind nicht unbeobachtet. Die Konfiguration ist deshalb vorab festgelegt und wird nicht angepasst.
+- **Auswertung:** wie Pre-Registration 2. Block-Bootstrap über ISO-Kalenderwochen nach Entry-Zeit, Symbole gemeinsam, 10.000 Resamples, Seed 42, 95-%-Perzentil-Intervall. Δ = Avg R mit SMC minus Avg R ohne SMC, mit denselben Wochen resampelt. Netto ist primär, brutto nur beschreibend.
+- **Abnahme 1 (Datenlage):** Liefert der Datenlader für einen Zeitraum und ein Symbol keine lückenlose 4h-Serie, ist für diesen Zeitraum kein Lauf zulässig. Eine Lücke erfordert eine neue Pre-Registration.
+- **Abnahme 2 (max_hold-Zähler):** Jeder Lauf (Symbol, Zeitraum, SMC an/aus, brutto und netto) muss time-Exits größer als 0 haben. Sonst ist der Lauf ungültig und hat kein Verdikt.
+- **Abnahme 3 (Mindeststichprobe):** 100 gepoolte Trades je Variante. Darunter gilt das Ergebnis als nicht auswertbar.
+- **Abnahme 4 (OOS-Länge, neu in dieser Pre-Registration):** Jeder Fold braucht mindestens 100 OOS-Bars. Darunter ist der Zeitraum ungültig. Diese Grenze folgt nicht aus Pre-Registration 2. Sie liegt zwischen den 73 Bars, bei denen unter ce6093a drei Läufe keinen time-Exit hatten, und den erwarteten rund 110 Bars. Dass 100 Bars ausreichen, ist nicht bewiesen. Abnahme 2 prüft es je Lauf.
+- **Verdikt-Regeln (unverändert zu Pre-Registration 2):** Die Basis ist positiv, wenn die untere CI-Grenze des Avg R über 0 liegt. SMC ist unterscheidbar, wenn das Δ-CI 0 nicht enthält.
+- **Berichtsregel (neu in dieser Pre-Registration):** Ergebnisse werden je Zeitraum und gepoolt berichtet. Eine Robustheitsaussage zum 4h-Verdikt setzt gültige Läufe in allen vier Zeiträumen (A bis D) voraus. Ist ein Zeitraum ungültig, wird nur berichtet.
+- **Nicht Teil des Verdikts:** Sharpe, Sortino und DSR.
+- **Merge:** Bleibt ausgesetzt.
