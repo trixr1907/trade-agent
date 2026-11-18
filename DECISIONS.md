@@ -286,6 +286,37 @@ SMC senkt die Summe R in 5 von 6 Snapshots und die gepoolte Avg R. Die Richtung 
 nicht einheitlich, und ein Signifikanztest fehlt. Der Merge auf main bleibt ausgesetzt.
 Über den Merge entscheidet ein Mensch.
 
+#### Pre-Registration: Robustheit der Basis-Engine (Schritt B)
+Diese Festlegung wird vor der ersten Messung committet. Die Messung folgt erst danach.
+Die Konfiguration wird nach dem Blick auf die Zahlen nicht geändert.
+
+- **Symbole und Zeitrahmen:** BTC/USDT, ETH/USDT, SOL/USDT, jeweils 1h und 4h.
+- **Zeiträume:** Drei nicht überlappende Blöcke von je rund vier Monaten, UTC, Start und Ende inklusive. Die Blöcke sind nach Marktregime gestreut.
+  - A, Abwärtsphase: 2022-05-01 bis 2022-08-31 (1h: rund 2.928 Bars)
+  - B, Seitwärtsphase: 2023-06-01 bis 2023-09-30 (1h: rund 2.928 Bars)
+  - C, Aufwärtsphase: 2024-01-01 bis 2024-04-30 (1h: rund 2.904 Bars)
+  - Die Regime-Zuordnung ist eine Vorab-Einschätzung aus dem Marktverlauf, keine Messung.
+- **Walk-Forward:** n_folds=3, is_ratio=0,70, min_signal_score=50, jeder Zeitraum getrennt.
+- **OOS-Bars pro Fold:** 1h rund 290 (966 Bars pro Fold, 676 IS). 4h rund 73 (rund 241 Bars pro Fold, 168 IS). Die Zahl 870 aus dem Entwurf ist die Summe über alle Folds, nicht pro Fold.
+- **Haltelimit:** max_hold=24 Bars, aktiv. Abnahme pro Lauf: Der max_hold-Zähler liegt über null, sonst ist der Lauf ungültig.
+- **Überlapp-Sperre:** separate Variante, nur beschreibend.
+- **Kosten:** netto ist die primäre Messung, brutto nur beschreibend.
+- **SMC:** jeweils mit und ohne SMC auf denselben Daten. Die Paare werden für Δ verknüpft.
+- **Primäre Metrik:** Avg R pro Trade, gepoolt über Zeiträume und Symbole. Sum R, Pro-Snapshot-Werte und Überlapp-Zeilen werden nur beschreibend berichtet.
+- **Mindeststichprobe:** 100 gepoolte Trades je Variante. Darunter gilt das Ergebnis als nicht auswertbar.
+- **Statistik:** Block-Bootstrap über Kalenderwochen nach Entry-Zeit, Symbole gemeinsam. 10.000 Resamples, Seed 42, 95-%-Perzentil-Intervall. Δ = Avg R mit SMC minus Avg R ohne SMC, mit denselben Wochen resampelt.
+- **Datenbeschaffung:** `tradeagent/data.py` bleibt unverändert. `fetch_ohlcv` lädt nur die letzten `limit` Kerzen ohne Zeitbereich. Für feste Zeiträume braucht es eine paginierte Abfrage mit `since`. Sie liegt in einem Diagnose-Skript in `snapshots/`, nicht im Produktivcode. Öffentliche Marktdaten brauchen keine API-Schlüssel. Verlangt der Exchange-Zugang Schlüssel, bricht der Lauf ab.
+- **Interpretation (vorab festgelegt):**
+  - Die Basis gilt als positiv, wenn die untere CI-Grenze des Avg R über 0 liegt.
+  - SMC wirkt nur, wenn das CI von Δ die 0 nicht enthält. Sonst ist das Ergebnis nicht unterscheidbar.
+  - Der Merge bleibt ausgesetzt, solange kein Δ-CI eindeutig in Richtung Edge zeigt.
+- **Abnahme:**
+  1. Diese Pre-Registration ist committet, bevor die erste Messung läuft.
+  2. Alle Läufe liefern Trades, und die max_hold-Zähler liegen über null.
+  3. Berichtet werden: Avg R der Basis mit CI, Δ Avg R und Δ Sum R für SMC mit CI, Trade-Zahl je Variante, Anzahl der Wochen-Blöcke.
+  4. Liegen weniger als drei getrennte Zeiträume mit Daten vor, wird das Ergebnis nicht als robust bewertet.
+  5. Ein Ergebnis unter der Schwelle wird als solches berichtet.
+
 ## Sicherheits-Prinzipien (von Tag 1)
 - API-Keys **nur** aus Env/Secrets — niemals im Quellcode.
 - Client-Eingaben niemals als Trust-Quelle für Ausführung.
