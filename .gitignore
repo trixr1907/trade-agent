@@ -42,6 +42,7 @@ Thumbs.db
 
 # Runtime-State (SQLite) — never version-controlled
 *.db
+*.db.bak*
 
 # Temporary test/debug scripts
 check_dashboard.py

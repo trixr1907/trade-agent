@@ -160,6 +160,9 @@ class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     host: str = "0.0.0.0"
     port: int = 8000
+    # Direktive 5C: Monitor-Intervall und optionaler Alarm-Webhook (leer = aus).
+    monitor_interval_seconds: float = 60.0
+    alert_webhook_url: str = ""
 
 
 def load_config() -> Config:
@@ -208,6 +211,9 @@ def load_config() -> Config:
 
     cfg.host = _get("HOST", "0.0.0.0")
     cfg.port = _get_int("PORT", 8000)
+
+    cfg.monitor_interval_seconds = _get_positive_float("MONITOR_INTERVAL_SECONDS", 60.0)
+    cfg.alert_webhook_url = _get("ALERT_WEBHOOK_URL").strip()
 
     # Hard-Guard: Live-Modus ohne API-Keys und ohne Allowlist-Konfiguration
     # wird sofort abgelehnt — fail-closed.

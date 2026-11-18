@@ -82,6 +82,20 @@ sie mit 401.
 - Ausführung ohne gültige Freigabe ist **unmöglich** (fail-closed).
 - Live-Modus hat harte Limits (Positionsgröße, Anzahl, Symbol-Allowlist).
 
+## Monitor & Alarme (Phase 5)
+
+Der Stop-Monitor läuft als Hintergrund-Thread im Server und startet und stoppt mit der App. Sein Intervall legt `MONITOR_INTERVAL_SECONDS` fest (Standard 60 s). Jeder Zyklus synchronisiert Stop- und Target-Orders und schreibt den Zeitstempel `last_sync`.
+
+Die Risiko-Checks legen bei einem Verstoß einen Alarm an:
+
+- Drawdown über `RISK_MAX_DRAWDOWN_PCT`.
+- Anzahl offener Positionen und Nominal pro Position gegen `LIVE_MAX_OPEN_POSITIONS` und `LIVE_MAX_POSITION_NOTIONAL_USD`.
+- Stop-Abstand zur Liquidation (nur Live).
+
+Sobald der Verstoß behoben ist, setzt der Monitor den Alarm auf `resolved`. Bis jemand ihn bestätigt (`POST /control/alarms/{id}/ack`), blockiert er `/control/resume` weiterhin mit 409.
+
+Ist `ALERT_WEBHOOK_URL` gesetzt, sendet der Monitor bei jedem neuen Alarm einen JSON-POST mit `kind`, `message`, `ref` und `created_at`. Schlägt der Aufruf fehl, wird nur geloggt. Alarme lösen keine Orders aus.
+
 ## Phasen
 
 1. **Jetzt ( Fundament )** — Engine, Workflow, Dashboard, Paper-Trading.

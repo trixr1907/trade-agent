@@ -19,6 +19,8 @@ Endpunkte:
 - POST /control/resume -> Trading fortsetzen (nur ohne unbestätigte Alarme)
 - GET  /control/alarms -> Unbestätigte Alarme
 - POST /control/alarms/{alarm_id}/ack -> Alarm bestätigen
+- GET  /control/alarms/stats -> Alarm-Statistik nach Typ/Zustand, letzter Sync
+- POST /control/alarms/{alarm_id}/resolve -> Alarm manuell auflösen (nur aus acknowledged)
 
 Auth (Bearer-Session) erforderlich: /scan, /scan/*, /universe, /approve, /reject,
 /execute, /control/*.
@@ -27,11 +29,12 @@ from __future__ import annotations
 
 import os
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -46,6 +49,7 @@ from ..graph import (
     run_pipeline,
 )
 from ..control import ControlPlane, TransitionError
+from ..monitor import StopMonitor
 from ..relay import AlarmsOpenError, resume_trading
 from ..scan_jobs import ScanJobBusyError, ScanJobManager, ScanProgress
 from ..signals import analyze_symbol, signals_above_threshold
@@ -53,7 +57,18 @@ from ..state import get_state_store
 from ..universe import allowlist_mode, get_universe, to_engine_symbol, to_perp_form
 from . import auth
 
-app = FastAPI(title="Crypto Trading Signal Agent", version="0.1.0")
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """Startet den Stop-Monitor mit dem Server und stoppt ihn beim Herunterfahren."""
+    monitor = StopMonitor(cfg, interval_s=cfg.monitor_interval_seconds)
+    monitor.start()
+    try:
+        yield
+    finally:
+        monitor.stop()
+
+
+app = FastAPI(title="Crypto Trading Signal Agent", version="0.1.0", lifespan=_lifespan)
 
 cfg = load_config()
 store = ProposalStore()
@@ -387,8 +402,41 @@ def control_resume(
 
 
 @app.get("/control/alarms", dependencies=[Depends(require_session)])
-def control_alarms():
-    return {"alarms": get_state_store().open_alarms()}
+def control_alarms(
+    history: bool = Query(default=False),
+    kind: Optional[str] = Query(default=None, max_length=64),
+    alarm_state: Optional[str] = Query(default=None, alias="state"),
+    limit: int = Query(default=100, ge=1, le=500),
+):
+    """Ohne Parameter: unbestätigte Alarme (unverändert). Mit history/kind/state: History."""
+    state_store = get_state_store()
+    if not (history or kind or alarm_state):
+        return {"alarms": state_store.open_alarms()}
+    if alarm_state is not None and alarm_state not in state_store.ALARM_STATES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Ungültiger Zustand {alarm_state!r} (erlaubt: {', '.join(state_store.ALARM_STATES)})",
+        )
+    return {"alarms": state_store.list_alarms(kind=kind, state=alarm_state, limit=limit)}
+
+
+@app.get("/control/alarms/stats", dependencies=[Depends(require_session)])
+def control_alarm_stats():
+    state_store = get_state_store()
+    stats = state_store.alarm_stats()
+    stats["last_sync"] = state_store.get_monitor_meta("last_sync")
+    return stats
+
+
+@app.post("/control/alarms/{alarm_id}/resolve")
+def control_alarm_resolve(alarm_id: int, session: auth.Session = Depends(require_session)):
+    if not get_state_store().resolve_alarm(alarm_id, session.account):
+        raise HTTPException(
+            status_code=409,
+            detail="Alarm nicht gefunden oder nicht im Zustand 'acknowledged' (erst bestätigen)",
+        )
+    print(f"[control] Alarm {alarm_id} aufgelöst durch {session.account}")
+    return {"resolved": alarm_id}
 
 
 @app.post("/control/alarms/{alarm_id}/ack")

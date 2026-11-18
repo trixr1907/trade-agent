@@ -176,6 +176,27 @@ class StateStore:
                     meta              TEXT NOT NULL
                 );
             """)
+            # Direktive 5C (Variante A): Alarm-Lebenszyklus als additive Spalten.
+            # Bestehende Rows bekommen state='open'; bereits bestätigte werden einmalig
+            # auf 'acknowledged' nachgezogen, damit state und acknowledged_at übereinstimmen.
+            alarm_cols = {row[1] for row in cur.execute("PRAGMA table_info(alarms)").fetchall()}
+            if "state" not in alarm_cols:
+                cur.execute("ALTER TABLE alarms ADD COLUMN state TEXT NOT NULL DEFAULT 'open'")
+                cur.execute(
+                    "UPDATE alarms SET state = 'acknowledged' WHERE acknowledged_at IS NOT NULL"
+                )
+            for column in ("context", "idempotency_key", "resolved_at", "resolved_by"):
+                if column not in alarm_cols:
+                    cur.execute(f"ALTER TABLE alarms ADD COLUMN {column} TEXT")
+            # Gleicher Schlüssel höchstens einmal aktiv (open/acknowledged).
+            cur.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_alarms_active_idem ON alarms (idempotency_key) "
+                "WHERE idempotency_key IS NOT NULL AND state != 'resolved'"
+            )
+            # Letzter Monitor-Sync usw. (JSON pro Schlüssel).
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS monitor_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+            )
             # Equity-Peak initialisieren falls noch nicht vorhanden
             cur.execute(
                 "INSERT OR IGNORE INTO equity_meta (key, value) VALUES (?, ?)",
@@ -357,12 +378,35 @@ class StateStore:
 
     # ── Alarme ────────────────────────────────────────────────────────────────
 
-    def raise_alarm(self, kind: str, message: str, ref: Optional[str] = None) -> int:
-        """Legt einen unbestätigten Alarm an und gibt seine ID zurück."""
+    ALARM_STATES = ("open", "acknowledged", "resolved")
+
+    def raise_alarm(
+        self,
+        kind: str,
+        message: str,
+        ref: Optional[str] = None,
+        *,
+        context: Optional[Dict[str, Any]] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> int:
+        """Legt einen unbestätigten Alarm an und gibt seine ID zurück.
+
+        Mit idempotency_key: Gibt es schon einen nicht aufgelösten Alarm mit diesem
+        Schlüssel, wird kein zweiter angelegt, sondern dessen ID zurückgegeben.
+        """
+        context_json = json.dumps(context, default=str) if context is not None else None
         with self._lock:
+            if idempotency_key is not None:
+                row = self._conn.execute(
+                    "SELECT id FROM alarms WHERE idempotency_key = ? AND state != 'resolved'",
+                    (idempotency_key,),
+                ).fetchone()
+                if row is not None:
+                    return int(row["id"])
             cur = self._conn.execute(
-                "INSERT INTO alarms (kind, message, ref, created_at) VALUES (?, ?, ?, ?)",
-                (kind, message, ref, _now_iso()),
+                "INSERT INTO alarms (kind, message, ref, created_at, state, context, idempotency_key) "
+                "VALUES (?, ?, ?, ?, 'open', ?, ?)",
+                (kind, message, ref, _now_iso(), context_json, idempotency_key),
             )
             self._conn.commit()
             return int(cur.lastrowid)
@@ -381,13 +425,138 @@ class StateStore:
         with self._lock:
             cur = self._conn.execute(
                 """
-                UPDATE alarms SET acknowledged_at = ?, acknowledged_by = ?
+                UPDATE alarms SET acknowledged_at = ?, acknowledged_by = ?,
+                    state = CASE WHEN state = 'open' THEN 'acknowledged' ELSE state END
                 WHERE id = ? AND acknowledged_at IS NULL
                 """,
                 (_now_iso(), actor, alarm_id),
             )
             self._conn.commit()
             return cur.rowcount == 1
+
+    def resolve_alarm(self, alarm_id: int, actor: str) -> bool:
+        """Manuelles Resolve, nur aus 'acknowledged'. False, wenn nicht möglich."""
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE alarms SET state = 'resolved', resolved_at = ?, resolved_by = ? "
+                "WHERE id = ? AND state = 'acknowledged'",
+                (_now_iso(), actor, alarm_id),
+            )
+            self._conn.commit()
+            return cur.rowcount == 1
+
+    def auto_resolve_alarm(self, idempotency_key: str) -> Optional[int]:
+        """Setzt einen offenen, unbestätigten Alarm auf 'resolved', wenn die Bedingung weg ist.
+
+        Bestätigte Alarme bleiben unberührt (manuelles Resolve). acknowledged_at bleibt
+        NULL: Der Alarm blockiert das Resume-Gate weiter, bis ihn jemand bestätigt.
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT id FROM alarms WHERE idempotency_key = ? AND state = 'open'",
+                (idempotency_key,),
+            ).fetchone()
+            if row is None:
+                return None
+            self._conn.execute(
+                "UPDATE alarms SET state = 'resolved', resolved_at = ?, resolved_by = 'auto' "
+                "WHERE id = ?",
+                (_now_iso(), row["id"]),
+            )
+            self._conn.commit()
+            return int(row["id"])
+
+    def active_alarm_keys(self, prefix: str) -> List[str]:
+        """Idempotenz-Schlüssel aller nicht aufgelösten Alarme mit diesem Präfix."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT idempotency_key FROM alarms WHERE state != 'resolved' "
+                "AND idempotency_key IS NOT NULL AND substr(idempotency_key, 1, ?) = ?",
+                (len(prefix), prefix),
+            ).fetchall()
+        return [str(r["idempotency_key"]) for r in rows]
+
+    @staticmethod
+    def _alarm_row_to_dict(row: Any) -> Dict[str, Any]:
+        alarm = dict(row)
+        raw = alarm.get("context")
+        if raw:
+            try:
+                alarm["context"] = json.loads(raw)
+            except ValueError:
+                alarm["context"] = {"raw": raw}
+        return alarm
+
+    def list_alarms(
+        self,
+        kind: Optional[str] = None,
+        state: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Alarm-History, neueste zuerst, optional gefiltert nach kind und state."""
+        clauses: List[str] = []
+        params: List[Any] = []
+        if kind:
+            clauses.append("kind = ?")
+            params.append(kind)
+        if state:
+            clauses.append("state = ?")
+            params.append(state)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(max(1, min(int(limit), 500)))
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT * FROM alarms {where} ORDER BY id DESC LIMIT ?", params
+            ).fetchall()
+        return [self._alarm_row_to_dict(r) for r in rows]
+
+    def alarm_stats(self) -> Dict[str, Any]:
+        """Anzahl nach Zustand und Typ, unbestätigte Alarme, letzter Alarm."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT kind, state, COUNT(*) AS n FROM alarms GROUP BY kind, state"
+            ).fetchall()
+            last = self._conn.execute(
+                "SELECT id, kind, state, message, created_at FROM alarms ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            unacknowledged = self._conn.execute(
+                "SELECT COUNT(*) FROM alarms WHERE acknowledged_at IS NULL"
+            ).fetchone()[0]
+        by_state: Dict[str, int] = {s: 0 for s in self.ALARM_STATES}
+        by_kind: Dict[str, Dict[str, int]] = {}
+        for r in rows:
+            n = int(r["n"])
+            by_state[r["state"]] = by_state.get(r["state"], 0) + n
+            by_kind.setdefault(r["kind"], {})[r["state"]] = n
+        return {
+            "total": sum(by_state.values()),
+            "by_state": by_state,
+            "by_kind": by_kind,
+            "unacknowledged": int(unacknowledged),
+            "last_alarm": dict(last) if last is not None else None,
+        }
+
+    def set_monitor_meta(self, key: str, value: Dict[str, Any]) -> None:
+        """Speichert Monitor-Metadaten (z. B. letzter Sync) als JSON."""
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO monitor_meta (key, value) VALUES (?, ?)",
+                (key, json.dumps(value, default=str)),
+            )
+            self._conn.commit()
+
+    def get_monitor_meta(self, key: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT value FROM monitor_meta WHERE key = ?", (key,)
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            value = json.loads(row["value"])
+        except ValueError:
+            return None
+        return value if isinstance(value, dict) else None
 
     def close_position(
         self,

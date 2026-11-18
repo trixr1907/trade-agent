@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import logging
 import threading
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
+import httpx
+
 from .config import Config
-from .execution import make_broker
+from .execution import LiveBroker, make_broker
 from .state import OpenPosition, StateStore, get_state_store
 
 logger = logging.getLogger(__name__)
@@ -213,7 +216,153 @@ class StopMonitor:
                 closed = sync_once(self._state, self._cfg, on_close=self._on_close)
                 if closed:
                     logger.debug("Sync: %d Position(en) geschlossen: %s", len(closed), closed)
+                self._state.set_monitor_meta("last_sync", {"at": _utc_now_iso()})
             except Exception as exc:
                 # Fail-safe: Monitor crasht nicht — Exchange-Trigger läuft weiter
                 logger.error("StopMonitor Fehler (wird ignoriert): %s", exc)
+            run_risk_checks(self._state, self._cfg)
             self._stop_event.wait(self._interval_s)
+
+
+# ── Risiko-Checks (Direktive 5C) ──────────────────────────────────────────────
+# Alarme lösen keine Trades aus. Jeder Check legt bei Verstoß einen Alarm an
+# (idempotent über idempotency_key) oder löst den eigenen Alarm wieder auf.
+
+ALARM_DRAWDOWN = "drawdown_exceeded"
+ALARM_RISK_LIMIT = "risk_limit_breach"
+ALARM_LIQUIDATION = "stop_near_liquidation"
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _notify_webhook(cfg: Config, kind: str, message: str, ref: Optional[str]) -> None:
+    """Generischer HTTP-POST an ALERT_WEBHOOK_URL. Fail-safe: Fehler nur loggen."""
+    url = cfg.alert_webhook_url
+    if not url:
+        return
+    payload = {"kind": kind, "message": message, "ref": ref, "created_at": _utc_now_iso()}
+    try:
+        response = httpx.post(url, json=payload, timeout=5.0)
+        response.raise_for_status()
+    except Exception as exc:
+        logger.warning("Alert-Webhook fehlgeschlagen (%s): %s", kind, exc)
+
+
+def _set_alarm_state(
+    state: StateStore,
+    cfg: Config,
+    key: str,
+    kind: str,
+    message: str,
+    breached: bool,
+    ref: Optional[str] = None,
+) -> None:
+    """Legt bei Verstoß einen Alarm an, sonst wird der Alarm mit diesem Schlüssel aufgelöst.
+
+    Der Webhook feuert nur, wenn für diesen Schlüssel noch kein offener Alarm existiert.
+    """
+    if breached:
+        already_open = key in state.active_alarm_keys(key)
+        state.raise_alarm(kind, message, ref, idempotency_key=key)
+        if not already_open:
+            _notify_webhook(cfg, kind, message, ref)
+    else:
+        state.auto_resolve_alarm(key)
+
+
+def check_drawdown(state: StateStore, cfg: Config) -> None:
+    """Drawdown über risk.max_drawdown_pct (Bruchteil, z. B. 0.15)."""
+    dd = state.current_drawdown_pct()
+    limit = cfg.risk.max_drawdown_pct
+    _set_alarm_state(
+        state,
+        cfg,
+        "risk:drawdown",
+        ALARM_DRAWDOWN,
+        f"Drawdown {dd:.1%} über Grenze {limit:.1%}.",
+        dd > limit,
+    )
+
+
+def check_position_limits(state: StateStore, cfg: Config) -> None:
+    """Anzahl offener Positionen und Nominal pro Position gegen die Live-Limits."""
+    limits = cfg.live_limits
+    positions = state.open_positions()
+    count = len(positions)
+    _set_alarm_state(
+        state,
+        cfg,
+        "risk:open_positions",
+        ALARM_RISK_LIMIT,
+        f"{count} offene Positionen, Limit {limits.max_open_positions}.",
+        count > limits.max_open_positions,
+    )
+    for pos in positions:
+        _set_alarm_state(
+            state,
+            cfg,
+            f"risk:notional:{pos.proposal_id}",
+            ALARM_RISK_LIMIT,
+            f"{pos.symbol}: Nominal {pos.notional_usd:.2f} USD über Limit "
+            f"{limits.max_position_notional_usd:.2f} USD.",
+            pos.notional_usd > limits.max_position_notional_usd,
+            pos.proposal_id,
+        )
+
+
+def check_liquidation_distance(state: StateStore, cfg: Config, broker: object) -> None:
+    """Stop-Abstand gegen den aktuellen Preis. Nur Live, da Paper keinen Exchange-Preis hat.
+
+    Kann der Preis nicht gelesen werden, bleibt der Alarmzustand unverändert (fail-closed).
+    """
+    if not isinstance(broker, LiveBroker):
+        return
+    # Lazy: relay importiert ccxt auf Modulebene, der Monitor soll auch ohne ccxt ladbar sein.
+    from .relay import stop_clear_of_liquidation
+
+    for pos in state.open_positions():
+        if not pos.stop_order_id:
+            continue
+        try:
+            last = broker.exchange.fetch_ticker(pos.symbol).get("last")
+        except Exception as exc:
+            logger.warning("Preis für %s nicht lesbar: %s", pos.symbol, exc)
+            continue
+        if not last:
+            logger.warning("Kein Preis für %s, Liquidations-Check übersprungen.", pos.symbol)
+            continue
+        price = float(last)
+        leverage = cfg.exchange.leverage
+        clear = stop_clear_of_liquidation(price, pos.stop_price, leverage)
+        _set_alarm_state(
+            state,
+            cfg,
+            f"risk:liquidation:{pos.proposal_id}",
+            ALARM_LIQUIDATION,
+            f"{pos.symbol}: Stop {pos.stop_price} liegt nicht klar vor der Liquidation "
+            f"bei {leverage}x (Preis {price}).",
+            not clear,
+            pos.proposal_id,
+        )
+
+
+def run_risk_checks(state: StateStore, cfg: Config) -> None:
+    """Führt alle Risiko-Checks aus. Ein fehlgeschlagener Check bricht die anderen nicht ab."""
+    try:
+        broker = make_broker(cfg)
+    except Exception:
+        logger.exception("Broker für Risiko-Checks nicht verfügbar.")
+        return
+
+    checks = (
+        lambda: check_drawdown(state, cfg),
+        lambda: check_position_limits(state, cfg),
+        lambda: check_liquidation_distance(state, cfg, broker),
+    )
+    for check in checks:
+        try:
+            check()
+        except Exception:
+            logger.exception("Risiko-Check fehlgeschlagen.")
