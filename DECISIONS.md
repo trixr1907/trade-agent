@@ -325,7 +325,7 @@ Gültige Messung nach den vorab festgelegten Regeln. Alle 1h-Läufe haben die Ab
 - Δ Avg R (SMC − Basis): −0,045, 95-%-CI [−0,120; +0,032].
 - Verdikt: Die Basis ist nicht positiv belegt, weil die untere CI-Grenze unter 0 liegt. SMC ist nicht von 0 unterscheidbar, weil das Δ-CI 0 enthält. Der Merge bleibt ausgesetzt.
 
-**4h: ungültig.** In sechs Läufen ist die Abnahme 2 nicht erfüllt, weil der max_hold-Zähler 0 ist: ETH/USDT 4h Zeitraum C (brutto und netto, mit und ohne SMC) sowie SOL/USDT 4h Zeitraum C (brutto und netto, mit SMC). Für 4h gibt es deshalb kein Ergebnis und kein Verdikt. Die Hypothese „OOS-Fenster zu kurz“ ist widerlegt: Die OOS-Fenster liegen bei 73 bis 74 Bars, also über 24. Die Ursache der Nullzähler ist offen. Eine Re-Registration erfolgt erst nach der Ursachenanalyse und mit eigenem Pre-Registration-Commit.
+**4h: ungültig.** In sechs Läufen ist die Abnahme 2 nicht erfüllt, weil der max_hold-Zähler 0 ist: ETH/USDT 4h Zeitraum C (brutto und netto, mit und ohne SMC) sowie SOL/USDT 4h Zeitraum C (brutto und netto, mit SMC). Für 4h gibt es deshalb kein Ergebnis und kein Verdikt. Die absolute Fensterlänge ist nicht die Ursache: Die OOS-Fenster liegen bei 73 bis 74 Bars. Entscheidend ist das Verhältnis Haltelimit zu Fensterlänge, denn nur die ersten rund 50 Bars eines Fensters bieten 24 Bars Restlaufzeit. Warum ETH/USDT 4h C (SMC aus und an) und SOL/USDT 4h C (SMC an) keinen time-Exit haben, ist nicht geprüft. Eine Re-Registration erfolgt erst nach der Ursachenanalyse und mit eigenem Pre-Registration-Commit.
 
 #### Korrektur: Robustheitsmessung 1h war nicht regelkonform (nur berichtend, kein Gate)
 Der Eintrag «Ergebnis: Robustheitsmessung 1h (Pre-Registration ce6093a)» oben ist ungültig und wird durch eine Neumessung ersetzt.
@@ -334,7 +334,7 @@ Der Eintrag «Ergebnis: Robustheitsmessung 1h (Pre-Registration ce6093a)» oben 
 - **Ursache des time-Zählers:** Das Label `time` entsteht nur nachträglich. In `snapshots/diag_maxhold.py` (Zeilen 54 bis 55) und in `snapshots/measure_ranges.py` wird ein `eod`-Trade nur dann auf `time` umgeschrieben, wenn sein Exit genau auf Entry + 24 Bars fällt. Das tritt nur auf, wenn ein Trade 24 Bars vor dem Datenende eröffnet wird.
 - **Folge:** Die Abnahme 2 («max_hold-Zähler > 0») prüfte deshalb einen Zufallstreffer, nicht die Haltelimit-Regel. Die 1h-Zahlen (Basis −0,116, Δ −0,045) stammen aus einer Messung ohne wirksames Haltelimit. Sie sind nicht als pre-registriertes Ergebnis zu werten.
 - **Was unverändert gilt:** Die Pre-Registration ce6093a bleibt gültig. Die Regeln (24 Bars, Block-Bootstrap, Interpretation) werden nicht geändert. Umgesetzt wurden sie nicht.
-- **Die 4h-Nullzähler** erklären sich aus derselben Ursache. Die Hypothese «OOS-Fenster zu kurz» bleibt widerlegt, weil die Fenster 73 bis 74 Bars haben.
+- **Die 4h-Nullzähler** entstehen durch das Verhältnis Haltelimit zu Fensterlänge. Die Fensterlänge allein (73 bis 74 Bars) erklärt sie nicht, weil nur die ersten rund 50 Bars eines Fensters 24 Bars Restlaufzeit bieten.
 - **Nächster Schritt:** Das Haltelimit wird in der Engine erzwungen, mit `exit_reason = "time"` direkt in der Schleife. Dazu gehört ein Engine-Diff zur Prüfung, bevor neu gemessen wird. Die Neumessung von 1h und 4h ist die erste regelkonforme Ausführung. Der Merge bleibt ausgesetzt.
 
 #### Richtigstellung zur Korrektur: Haltelimit wirkt in der Messung
@@ -343,7 +343,7 @@ Der Korrektur-Eintrag oben (Commit 57dca48) ist falsch. Die Aussage, das 24-Bar-
 - `snapshots/measure_ranges.py` hängt `_simulate_capped` über `bt._simulate_trade = _simulate_capped` in die Engine ein (Zeile 130). `_simulate_capped` begrenzt jeden Trade auf MAX_HOLD = 24 Bars und markiert einen Exit an dieser Grenze als `time`.
 - `run_walk_forward` ruft `_simulate_trade` über den Modulnamen auf (`backtest.py`, Zeile 509). Der Monkeypatch greift daher.
 - Die `time`-Labels der 1h-Messung sind damit echte Haltelimit-Exits. Die 1h-Messung ist nicht als nicht-regelkonform zu werten.
-- Offen: Die 4h-Läufe haben kaum `time`-Exits. Die Einträge liegen in vielen Folds nahe am Fold-Ende, sodass weniger als 24 Bars bleiben. Das muss noch mit den Fold-Grenzen belegt werden.
+- Belegt mit exit_bar und OOS-Grenzen (Stand 2026-11-18): Alle 353 eod-Trades der 4h-Netto-Läufe enden am OOS-Fensterende mit weniger als 24 Bars. Drei Läufe haben keinen time-Exit: ETH/USDT 4h C (SMC aus), ETH/USDT 4h C (SMC an), SOL/USDT 4h C (SMC an).
 
 ## Sicherheits-Prinzipien (von Tag 1)
 - API-Keys **nur** aus Env/Secrets — niemals im Quellcode.
