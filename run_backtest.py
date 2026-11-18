@@ -67,6 +67,13 @@ def main() -> None:
         else:
             print()
             print(result.summary())
+            fold_trades = [t for f in result.folds for t in f.trades]
+            avg_score = (
+                sum(t.score for t in fold_trades) / len(fold_trades)
+                if fold_trades else 0.0
+            )
+            print(f"Avg-Score: {avg_score:.1f} (aus {len(fold_trades)} Trades)")
+            print(f"Profit F : {result.oos_profit_factor:.4f} (4 Dezimalen)")
             print()
             print(f"{'Fold':<5} {'IS-Bars':<9} {'OOS-Bars':<10} {'Trades':<8} "
                   f"{'Win%':<8} {'Avg R':<8} {'Sharpe':<8} {'MaxDD%':<8}")
