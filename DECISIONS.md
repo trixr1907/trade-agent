@@ -350,3 +350,18 @@ Der Korrektur-Eintrag oben (Commit 57dca48) ist falsch. Die Aussage, das 24-Bar-
 - Client-Eingaben niemals als Trust-Quelle für Ausführung.
 - Live-Modus hat harte Limits (Max-Order-Größe, VP-Limit, Allowlist der Symbole).
 - Logs redact sensitive Daten (Keys, vollständige Order-IDs).
+
+## Pre-Registration 2: 4h-Messung mit n_folds=2 (vor dem ersten Lauf committet)
+
+- **Zweck:** Die 4h-Messung unter ce6093a ist ungültig (Abnahme 2, max_hold-Zähler = 0 in drei Läufen). Diese Messung wiederholt die 4h-Auswertung mit einem größeren Fenster.
+- **Zeitraum:** D = 2024-05-01 bis 2024-10-31, Timeframe 4h, 6 Monate. Kein Überlapp mit den Zeiträumen A, B und C.
+- **Symbole:** BTC/USDT, ETH/USDT, SOL/USDT.
+- **Konfiguration:** n_folds=2, is_ratio 0,70, min_signal_score 50, max_hold 24 Bars. Gegenüber ce6093a ändern sich nur n_folds und der Zeitraum.
+- **Haltelimit:** 24 Bars sind bei 4h vier Tage, nicht ein Tag. Das Limit gilt in Bars.
+- **Erwartung (nicht bindend):** OOS rund 160 Bars je Fold, eod-Anteil rund 15 %. Der Lauf prüft das.
+- **Abnahme 1 (Datenlage):** Liefert der Datenlader für D keine lückenlose 4h-Serie, ist kein Lauf zulässig. Eine Lücke erfordert eine neue Pre-Registration.
+- **Abnahme 2 (max_hold-Zähler):** Jeder Lauf (Symbol, SMC an/aus, brutto und netto) muss time-Exits größer als 0 haben. Sonst ist der Lauf ungültig und hat kein Verdikt.
+- **Auswertung:** Block-Bootstrap über ISO-Kalenderwochen, 10.000 Resamples, Seed 42, 95-%-Perzentil-Intervall. Netto ist primär.
+- **Verdikt-Regeln (unverändert zu ce6093a):** Die Basis ist positiv, wenn die untere CI-Grenze des Avg R über 0 liegt. SMC ist unterscheidbar, wenn das Δ-CI 0 nicht enthält.
+- **Nicht Teil des Verdikts:** Sharpe, Sortino und DSR.
+- **Merge:** Bleibt ausgesetzt.
