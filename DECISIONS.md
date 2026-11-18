@@ -122,6 +122,62 @@ keine 210 unabhängigen Beobachtungen. Die Evidenz spricht leicht gegen SMC, ist
 aber nicht signifikant. Formel, Gewichte und Schwelle bleiben unverändert. Über
 den Merge auf main entscheidet weiterhin ein Mensch.
 
+#### Korrektur zum Vergleich: Exit-Aufschlüsselung (nur berichtend, kein Gate)
+Die Zahlen der Tabelle oben bleiben unverändert. Ihre Aussagekraft ist aber
+geringer, als der Vergleich allein nahelegt. Die Exit-Aufschlüsselung der
+Basis-Engine (ohne SMC, gleiche 6 Snapshots, gleiche Config) zeigt, wie die
+210 Trades enden:
+
+| Exit-Grund | Trades | Summe R brutto (aus n und Avg R gerechnet) |
+| ---------- | ------ | ------------------------------------------ |
+| Stop       | 31     | −31,0                                      |
+| Target     | 7      | +8,4                                       |
+| eod        | 172    | rund −31                                   |
+| Summe      | 210    | −53,75 (netto −70,54)                      |
+
+- **eod dominiert.** 172 von 210 Trades (82 %) erreichen weder Stop noch Target.
+  `_simulate_trade` hat kein Zeitlimit und schließt solche Trades zum letzten
+  Schlusskurs des OOS-Fensters. Ihr Ergebnis hängt davon ab, wo der Kurs am
+  Fensterende steht, nicht von der Stop/Target-Strategie.
+- **Keine Überlapp-Sperre.** `run_walk_forward` öffnet in jedem OOS-Bar mit
+  Signal einen neuen Trade. Viele Trades teilen sich Exit-Preis und Marktphase.
+  Die 210 Trades sind keine unabhängigen Beobachtungen.
+- **Die Trefferquote ist kein Richtungsmaß.** Die Brutto-Quote von 32 bis 38 %
+  besteht fast nur aus eod-Trades mit kleinem Plus (Avg R zwischen −0,03 und
+  −0,09 bei 1h). Kosten von 0,04 bis 0,10 R pro Trade kippen sie ins Minus. Das
+  erklärt den Abfall von 32,1 % auf 7,1 % bei BTC/USDT 1h. Ein Vergleich mit der
+  Breakeven-Quote von etwa 45,5 % ist nicht zulässig.
+- **Das Risk-Reward ist nicht das Problem.** Stop 2,5 ATR, Target 3,0 ATR. Stop
+  liegt bei −1,0 R brutto, Target bei +1,2 R brutto und +1,09 bis +1,14 R netto.
+  Die Kosten machen im Mittel rund 0,08 R pro Trade aus (16,8 R von 70,5 R
+  Nettoverlust, etwa 24 %). Die Basis-Engine verliert auch brutto
+  (−0,256 R pro Trade gegen −0,336 R netto).
+- **Stop-Häufung als Hinweis.** Unter den 38 Trades, die ein Level erreichen,
+  enden 31 am Stop (82 %). Das deutet auf schlechtes Entry-Timing hin. Die Daten
+  sind zensiert (172 Trades erreichen kein Level) und überlappend. Es ist ein
+  Hinweis, kein Beleg.
+
+Bewertung: «SMC tendiert gegen, nicht signifikant» bleibt bestehen, gründet aber
+auf weniger als zuvor angenommen. Der Vergleich misst größtenteils den Kursstand
+am Fensterende. Die Aufschlüsselung nach Exit-Grund liegt nur für den Lauf ohne
+SMC vor, für den Lauf mit SMC nicht. Die Aussage, SMC filtere nur und verbessere
+die Trades nicht, ist damit nicht abgesichert.
+
+Offene Methodik-Lücken:
+- Kein `max_hold` und keine Sperre gegen überlappende Trades im Backtest.
+- Nicht geprüft, ob der Live-Betrieb Positionen anders hält oder schließt als
+  der Backtest. Davon hängt ab, ob der Backtest das Live-Verhalten abbildet.
+- Die Score-Budget-Hypothese (maximal 65 Punkte bei Schwelle 50) ist nicht
+  geprüft.
+
+Nächste Schritte:
+1. `max_hold` (z. B. 24 Bars) und Überlapp-Sperre zuerst nur im Diagnoseskript
+   ergänzen, nicht im Produktivcode.
+2. Alle 6 Snapshots damit zweimal messen, ohne und mit SMC. Erst dieser
+   Vergleich kann als Grundlage der SMC-Entscheidung dienen.
+3. Der Merge auf main bleibt ausgesetzt. Formel, Gewichte und Schwelle bleiben
+   unverändert. Über den Merge entscheidet ein Mensch.
+
 ## Sicherheits-Prinzipien (von Tag 1)
 - API-Keys **nur** aus Env/Secrets — niemals im Quellcode.
 - Client-Eingaben niemals als Trust-Quelle für Ausführung.
