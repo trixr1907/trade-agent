@@ -337,6 +337,14 @@ Der Eintrag «Ergebnis: Robustheitsmessung 1h (Pre-Registration ce6093a)» oben 
 - **Die 4h-Nullzähler** erklären sich aus derselben Ursache. Die Hypothese «OOS-Fenster zu kurz» bleibt widerlegt, weil die Fenster 73 bis 74 Bars haben.
 - **Nächster Schritt:** Das Haltelimit wird in der Engine erzwungen, mit `exit_reason = "time"` direkt in der Schleife. Dazu gehört ein Engine-Diff zur Prüfung, bevor neu gemessen wird. Die Neumessung von 1h und 4h ist die erste regelkonforme Ausführung. Der Merge bleibt ausgesetzt.
 
+#### Richtigstellung zur Korrektur: Haltelimit wirkt in der Messung
+Der Korrektur-Eintrag oben (Commit 57dca48) ist falsch. Die Aussage, das 24-Bar-Haltelimit sei nirgends wirksam, gilt nur für `tradeagent/backtest.py`.
+
+- `snapshots/measure_ranges.py` hängt `_simulate_capped` über `bt._simulate_trade = _simulate_capped` in die Engine ein (Zeile 130). `_simulate_capped` begrenzt jeden Trade auf MAX_HOLD = 24 Bars und markiert einen Exit an dieser Grenze als `time`.
+- `run_walk_forward` ruft `_simulate_trade` über den Modulnamen auf (`backtest.py`, Zeile 509). Der Monkeypatch greift daher.
+- Die `time`-Labels der 1h-Messung sind damit echte Haltelimit-Exits. Die 1h-Messung ist nicht als nicht-regelkonform zu werten.
+- Offen: Die 4h-Läufe haben kaum `time`-Exits. Die Einträge liegen in vielen Folds nahe am Fold-Ende, sodass weniger als 24 Bars bleiben. Das muss noch mit den Fold-Grenzen belegt werden.
+
 ## Sicherheits-Prinzipien (von Tag 1)
 - API-Keys **nur** aus Env/Secrets — niemals im Quellcode.
 - Client-Eingaben niemals als Trust-Quelle für Ausführung.
