@@ -49,6 +49,51 @@ class TechnicalSnapshot:
 
 
 @dataclass
+class StructureEvent:
+    """BOS oder CHoCH: Close bricht ein bestätigtes Swing-Level."""
+
+    kind: str          # "bos" | "choch"
+    direction: str     # "bullish" | "bearish"
+    index: int         # Bar-Index (Position im DataFrame), an dem der Close das Level bricht
+    level: float       # gebrochenes Swing-Level
+
+
+@dataclass
+class Zone:
+    """Fair Value Gap oder Orderblock."""
+
+    kind: str          # "fvg" | "orderblock"
+    direction: str     # "bullish" | "bearish"
+    index: int         # Bar-Index der Entstehung
+    bottom: float
+    top: float
+    mitigated: bool
+
+
+@dataclass
+class LiquiditySweep:
+    """Docht über/unter ein Swing-Level mit Close zurück. Kein Bruch."""
+
+    direction: str     # "bullish" = Sell-Side-Liquidität unter Swing-Low genommen; "bearish" = Buy-Side über Swing-High
+    index: int
+    level: float       # das gesweepte Swing-Level
+
+
+@dataclass
+class SMCResult:
+    """Ergebnis der SMC-Analyse, bezogen auf die Richtung eines Signals."""
+
+    last_event: Optional[StructureEvent]
+    events: List[StructureEvent]            # höchstens die letzten 5
+    fvgs: List[Zone]                        # höchstens die 3 jüngsten, nicht mitigiert
+    order_blocks: List[Zone]                # höchstens die 3 jüngsten, nicht mitigiert
+    liquidity_sweeps: List[LiquiditySweep]  # höchstens die letzten 3
+    confluence_score: float                 # 0..1, bezogen auf die Signalrichtung
+    veto: bool
+    reasons: List[str]
+
+
+@dataclass
 class Signal:
     """Ein eindeutiges Signal der deterministischen Engine."""
 
@@ -61,6 +106,7 @@ class Signal:
     target_price: Optional[float] = None
     atr: float = 0.0
     created_at: datetime = field(default_factory=now_utc)
+    smc: Optional[SMCResult] = None
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)

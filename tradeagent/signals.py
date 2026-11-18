@@ -11,6 +11,7 @@ from typing import List, Optional
 from .config import RiskConfig
 from .indicators import compute_snapshot
 from .models import Signal, SignalDirection
+from .smc import analyze_smc
 
 
 def _score_buy(snap: dict) -> tuple[int, List[str]]:
@@ -94,6 +95,15 @@ def analyze_symbol(symbol: str, df) -> Optional[Signal]:
         else:
             score, reasons, direction = sell_score, sell_reasons, SignalDirection.SELL
 
+    # SMC bewertet das Signal, erzeugt aber keins. Ein frischer CHoCH gegen
+    # die Richtung setzt den Score auf 0 (fällt bei jeder Schwelle heraus).
+    smc = analyze_smc(df, direction)
+    if smc.veto:
+        final_score = 0
+    else:
+        final_score = int(round(min(score, 100) * (0.7 + 0.3 * smc.confluence_score)))
+    reasons = reasons + smc.reasons
+
     price = snap["price"]
     atr_val = snap["atr"]
 
@@ -108,11 +118,12 @@ def analyze_symbol(symbol: str, df) -> Optional[Signal]:
         symbol=symbol,
         direction=direction,
         price=price,
-        score=min(score, 100),
+        score=min(final_score, 100),
         reasons=reasons,
         stop_price=stop_price,
         target_price=target_price,
         atr=atr_val,
+        smc=smc,
     )
 
 

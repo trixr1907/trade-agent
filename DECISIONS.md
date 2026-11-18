@@ -13,7 +13,7 @@ geändert werden soll, wird hier der Grund aufgezeichnet.
 | Exchange        | **Bitget** (via CCXT)                    | Einheitlicher API-Zugriff, AURA-Vorbild                     |
 | Analyse-Ansatz  | **Hybrid**: deterministische Engine + LLM als Analyst | LLM entscheidet NICHT; er begründet und summarisiert |
 
-## Die 6 prägenden Entscheidungen
+## Die 7 prägenden Entscheidungen
 
 ### 1. Signal-Engine ist deterministisch, LLM ist nur Analyst
 Der Kauf-/Verkaufsbeschluss entsteht **nie** im LLM. Er entsteht in
@@ -50,6 +50,45 @@ Dieser Teil gehört in `backtest/` und ist für den Aufbau phasen 2–3 geplant.
 - **Kelly-Sizing** (mit Kap für viele Positionen) + **ATR-Stops** +
   **Max-Drawdown-Budget** sind Teil der Engine (`risk.py`).
 - Ein Signal ohne Risiko-Sizing wird **nicht** ausgeführt.
+
+### 7. SMC bewertet Signale, erzeugt aber keine
+Die SMC-Analyse (`smc.py`) ist deterministisch und läuft innerhalb von
+`analyze_symbol()`. Sie liefert für die Richtung des bestehenden Signals einen
+Konfluenz-Score zwischen 0 und 1 und kann ein Veto auslösen.
+- **Formel:** `final = round(min(score, 100) * (0.7 + 0.3 * confluence_score))`.
+  Ohne Konfluenz bleiben 70 % des Basis-Scores, bei voller Konfluenz 100 %.
+- **Gewichte:** BOS/CHoCH in Signalrichtung 0.35, offene FVG in Reichweite 0.25,
+  offener Orderblock in Reichweite 0.25, Liquidity Sweep 0.15.
+- **Veto:** Ein CHoCH gegen die Signalrichtung, höchstens 10 Bars alt, setzt den
+  Score auf 0. Das Signal fällt damit bei jeder Schwelle heraus.
+- **Kein Lookahead:** Ein Swing gilt erst nach 3 rechten Bars als bestätigt.
+  Das ist per Test abgesichert.
+- Die Signatur `analyze_symbol(symbol, df)` bleibt unverändert. SMC wirkt
+  dadurch im Live-Pfad und im Backtest gleich.
+
+#### Backtest-Ergebnis (nur berichtend, kein Gate)
+Snapshot BTC/USDT 1h, 500 Bars, 2026-10-28 13:00 bis 2026-11-18 08:00 UTC,
+3 Folds, `is_ratio` 0.70, `min_signal_score` 50, `bars_per_year` 252 * 24.
+Beide Läufe nutzen denselben Snapshot.
+
+| Kennzahl            | Ohne SMC                 | Mit SMC                  |
+| ------------------- | ------------------------ | ------------------------ |
+| Trades              | 28 (4 / 14 / 10)         | 19 (3 / 9 / 7)           |
+| Durchschnitts-Score | 59,8                     | 54,2                     |
+| Win-Rate            | 7,1 % (2 Gewinner)       | 5,3 % (1 Gewinner)       |
+| Profit-Faktor       | 0,0010                   | 0,0003                   |
+| Sharpe / Sortino    | −33,92 / −34,11          | −28,55 / −28,67          |
+| Avg R pro Fold      | −0,588 / −0,182 / −0,588 | −0,405 / −0,207 / −0,698 |
+| Kosten              | $57,38                   | $37,96                   |
+| DSR                 | 0,0000                   | 0,0000                   |
+
+Mit SMC gibt es weniger Trades und einen niedrigeren Profit-Faktor. Sharpe und
+Sortino sind weniger negativ, aber Fold 2 liegt weiter an der Clip-Grenze −50.
+Der bessere Wert in Fold 1 beruht auf 3 Trades. Die Stichprobe ist nicht
+signifikant: Sie zeigt weder, dass SMC hilft, noch, dass es schadet. Formel und
+Gewichte werden an dieser Stichprobe nicht nachjustiert, weil das Kurven-Anpassung
+wäre. Bis zur Merge-Entscheidung liegt SMC auf dem Branch `feat/smc-confluence`.
+Über den Merge auf main entscheidet ein Mensch.
 
 ## Sicherheits-Prinzipien (von Tag 1)
 - API-Keys **nur** aus Env/Secrets — niemals im Quellcode.
