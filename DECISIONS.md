@@ -368,12 +368,12 @@ Der Korrektur-Eintrag oben (Commit 57dca48) ist falsch. Die Aussage, das 24-Bar-
 
 ### Ergebnis Pre-Registration 2 (4h, Zeitraum D, n_folds=2)
 
-- **Abnahme 1 (Datenlage):** erfüllt. Lückenlose 4h-Serie für D, 4416 Bars je Symbol.
+- **Abnahme 1 (Datenlage):** erfüllt. Lückenlose 4h-Serie für D, 1104 Bars je Symbol (2024-05-01 00:00 bis 2024-10-31 20:00 UTC). Eine frühere Fassung dieser Zeile nannte 4416 Bars, das ist die Länge der 1h-Serie.
 - **Abnahme 2 (max_hold-Zähler):** erfüllt. Alle sechs Läufe haben time-Exits > 0 (SMC aus: 41, 51, 34; SMC an: 12, 23, 17).
 - **OOS-Länge:** 166 Bars je Fold, im Rahmen der Erwartung von rund 160.
 - **eod-Anteil (netto):** SMC aus 2,1 % (12 von 582), SMC an 0,4 % (1 von 264). Die Erwartung von rund 15 % wird deutlich unterschritten.
 - **Trades (netto):** Basis 582, mit SMC 264.
 - **Avg R Basis:** +0,114, 95-%-CI [−0,317; +0,464].
 - **Δ Avg R (SMC − Basis):** −0,065, 95-%-CI [−0,226; +0,079].
-- **Verdikt:** Kein Verdikt. Die Auswertung findet nur einen Zeitraum mit Daten (D), die Verdikt-Regel verlangt mindestens drei getrennte Zeiträume. Die Basis ist damit nicht positiv belegt, SMC ist nicht von 0 unterscheidbar, nur mit dieser Datenlage gilt das nicht als robust.
+- **Verdikt (nach den Regeln oben):** Die Basis ist nicht positiv belegt, weil die untere CI-Grenze des Avg R (−0,317) unter 0 liegt. SMC ist nicht von der Basis unterscheidbar, weil das Δ-CI [−0,226; +0,079] die 0 enthält. Der Merge bleibt ausgesetzt. Die Pre-Registration 2 nennt keine Mindestzahl an Zeiträumen. Die Aussagekraft ist trotzdem begrenzt, weil nur ein Zeitraum (D) ausgewertet wurde.
 - **Merge:** Bleibt ausgesetzt.
