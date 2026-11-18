@@ -178,6 +178,67 @@ Nächste Schritte:
 3. Der Merge auf main bleibt ausgesetzt. Formel, Gewichte und Schwelle bleiben
    unverändert. Über den Merge entscheidet ein Mensch.
 
+#### Messung mit max_hold und n_folds=1 (neue Konfiguration, nur berichtend, kein Gate)
+Diese Messung ist keine Fortsetzung der 6-Snapshot-Tabelle. Sie nutzt eine andere
+Konfiguration und ist mit ihr nicht direkt vergleichbar.
+
+- **Konfiguration:** `n_folds=1`, `is_ratio` 0,70, `min_signal_score` 50,
+  `max_hold` 24 Bars, `bars_per_year` 252 * 24 bzw. 252. Das OOS-Fenster umfasst
+  die letzten rund 150 Bars jedes Snapshots. Die Kosten gelten netto, brutto ohne
+  Kosten. Der Patch liegt nur in `snapshots/diag_maxhold.py`. Der Produktivcode
+  ist unverändert.
+- **Abnahme:** In allen 12 Läufen (6 Snapshots, brutto und netto) beendet max_hold
+  Trades. Die Zähler liegen über null, die Messung gilt damit als gültig.
+
+**Revision:** Die Aussagen «Die Basis-Engine verliert schon ohne SMC in allen
+6 Snapshots» und «eod dominiert» gelten für das Setup mit 3 Folds und OOS-Fenstern
+von rund 50 Bars. Unter dieser Konfiguration gelten sie nicht. Der Abschnitt oben
+bleibt unverändert, ist aber durch diese Messung überholt.
+
+Ergebnis, netto, ohne Überlapp-Sperre (Zeile «hold»):
+
+| Snapshot    | Trades ohne SMC | SumR ohne SMC | Avg R ohne SMC | Trades mit SMC | SumR mit SMC | Avg R mit SMC |
+| ----------- | --------------- | ------------- | -------------- | -------------- | ------------ | ------------- |
+| BTC/USDT 1h | 79              | +21,19        | +0,268         | 20             | −4,75        | −0,238        |
+| ETH/USDT 1h | 79              | +19,18        | +0,243         | 23             | +2,68        | +0,116        |
+| SOL/USDT 1h | 88              | +12,42        | +0,141         | 29             | +1,17        | +0,040        |
+| BTC/USDT 4h | 103             | +41,50        | +0,403         | 40             | +10,41       | +0,260        |
+| ETH/USDT 4h | 95              | +33,60        | +0,354         | 32             | +3,78        | +0,118        |
+| SOL/USDT 4h | 105             | +48,59        | +0,463         | 57             | +39,58       | +0,694        |
+| Summe       | 549             | +176,48       | +0,321         | 201            | +52,87       | +0,263        |
+
+Zähler (netto):
+
+- max_hold-Trades ohne SMC: 29, 16, 19, 16, 8, 10. Mit SMC: 6, 2, 2, 13, 8, 9.
+- Überlapp-gesperrte Signale ohne SMC: 73, 70, 78, 94, 88, 98. Mit SMC: 14, 17,
+  23, 34, 26, 51.
+- Mit Überlapp-Sperre bleiben pro Snapshot nur 6 bis 10 Trades (48 ohne SMC,
+  36 mit SMC). Diese Zeilen sind zu klein für eine Aussage.
+
+Befunde:
+
+- Die Summe R ist mit SMC in allen 6 Snapshots niedriger. Das Avg R sinkt in 5
+  von 6 Snapshots. Ausnahme ist SOL/USDT 4h.
+- Gepoolt liegt das Avg R bei +0,32 R pro Trade ohne SMC und bei +0,26 R mit SMC.
+- Ohne SMC enden Trades zu 9 bis 20 pro Snapshot am Fensterende (eod) und zu 8 bis
+  29 durch max_hold (time).
+
+Einschränkungen:
+
+- Zwei Dinge ändern sich gegenüber der 6-Snapshot-Tabelle: die Zahl der Folds (3
+  auf 1, also Fensterlänge und IS/OOS-Schnitt) und max_hold. Der Unterschied lässt
+  sich deshalb nicht allein max_hold oder der Fensterlänge zuschreiben. Ein Lauf mit
+  `n_folds=1` ohne max_hold würde das trennen. Den habe ich nicht gemacht.
+- Ein OOS-Fenster pro Snapshot, regimeabhängig. Die Snapshots überlappen zeitlich
+  und hängen über den gemeinsamen Markt zusammen. Die Trades sind keine unabhängigen
+  Beobachtungen.
+- Kein Signifikanztest. DSR wurde nicht berechnet.
+
+Verdikt (nur für diese Konfiguration): Die Basis-Engine ist netto positiv. SMC
+senkt in dieser Konfiguration die Summe R und das Avg R pro Trade. Die Richtung ist
+konsistent, aber nicht signifikant. Formel, Gewichte und Schwelle bleiben unverändert.
+Der Merge auf main bleibt ausgesetzt. Über den Merge entscheidet ein Mensch.
+
 ## Sicherheits-Prinzipien (von Tag 1)
 - API-Keys **nur** aus Env/Secrets — niemals im Quellcode.
 - Client-Eingaben niemals als Trust-Quelle für Ausführung.
