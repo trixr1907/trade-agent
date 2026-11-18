@@ -23,6 +23,19 @@
       --amber: #ffc65a;
       --shadow: 0 0 28px rgba(54, 224, 255, 0.12);
       --cut: 15px;
+
+      /* Motion-System (Direktive 5B): eine Easing- und Timing-Skala fuer das ganze Dashboard. */
+      --ease-out-premium: cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-in-out-soft: cubic-bezier(0.65, 0, 0.35, 1);
+      --ease-in-premium: cubic-bezier(0.7, 0, 0.84, 0);
+      --ease-pulse: cubic-bezier(0.37, 0, 0.63, 1);
+      --dur-micro: 180ms;
+      --dur-micro-slow: 260ms;
+      --dur-enter: 480ms;
+      --dur-enter-slow: 600ms;
+      --dur-modal: 700ms;
+      --dur-pulse: 2400ms;
+      --stagger-step: 45ms;
     }
 
     * {
@@ -266,9 +279,11 @@
     }
 
     .mode-badge.live {
+      --pulse-glow: rgba(255, 101, 118, 0.38);
       color: var(--red);
       border-color: rgba(255, 101, 118, 0.55);
       background: rgba(255, 101, 118, 0.1);
+      animation: statusPulse var(--dur-pulse) var(--ease-pulse) infinite;
     }
 
     .mode-badge.paper {
@@ -350,6 +365,7 @@
       padding: 20px;
       background: rgba(3, 8, 13, 0.86);
       backdrop-filter: blur(6px);
+      animation: overlayIn var(--dur-modal) var(--ease-out-premium) both;
     }
 
     .login-overlay[hidden] {
@@ -358,6 +374,7 @@
 
     .login-panel {
       width: min(100%, 380px);
+      animation: modalIn var(--dur-modal) var(--ease-out-premium) both;
       padding: 26px 24px;
       border: 1px solid var(--line);
       background: var(--panel-strong);
@@ -1058,7 +1075,21 @@
       font-size: 0.72rem;
       font-weight: 800;
       letter-spacing: 0.05em;
-      transition: transform 0.17s ease, border-color 0.17s ease, background 0.17s ease, box-shadow 0.17s ease;
+      transition:
+        transform var(--dur-micro) var(--ease-out-premium),
+        border-color var(--dur-micro) var(--ease-out-premium),
+        background var(--dur-micro) var(--ease-out-premium),
+        box-shadow var(--dur-micro-slow) var(--ease-out-premium);
+    }
+
+    .action-button:active:not(:disabled) {
+      transform: translateY(0) scale(0.97);
+      transition-duration: var(--dur-micro);
+    }
+
+    .action-button:focus-visible {
+      outline: 1px solid var(--cyan-soft);
+      outline-offset: 2px;
     }
 
     .action-button:hover:not(:disabled) {
@@ -1151,7 +1182,16 @@
       min-height: 290px;
       flex-direction: column;
       padding: 19px;
-      animation: cardIn 0.34s ease both;
+      animation: cardIn var(--dur-enter) var(--ease-out-premium) backwards;
+      animation-delay: calc(var(--stagger-index, 0) * var(--stagger-step));
+      transition:
+        transform var(--dur-micro-slow) var(--ease-out-premium),
+        border-color var(--dur-micro-slow) var(--ease-out-premium);
+    }
+
+    .proposal-card:hover {
+      transform: translateY(-3px);
+      border-color: var(--line-bright);
     }
 
     @keyframes cardIn {
@@ -1568,7 +1608,7 @@
       box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
       color: var(--cyan-soft);
       font-size: 0.74rem;
-      animation: toastIn 0.25s ease both;
+      animation: toastIn var(--dur-micro-slow) var(--ease-out-premium) both;
     }
 
     .toast.ok {
@@ -1589,6 +1629,255 @@
       to {
         opacity: 1;
         transform: translateX(0);
+      }
+    }
+
+    /* Motion-System (Direktive 5B): Status, Login, Fehler, Alarm */
+
+    .mode-badge,
+    .status-chip,
+    .trading-badge {
+      transition:
+        color var(--dur-micro-slow) var(--ease-in-out-soft),
+        border-color var(--dur-micro-slow) var(--ease-in-out-soft),
+        background-color var(--dur-micro-slow) var(--ease-in-out-soft),
+        box-shadow var(--dur-micro-slow) var(--ease-in-out-soft);
+    }
+
+    .trading-badge.running {
+      --pulse-glow: rgba(85, 240, 160, 0.32);
+      animation: statusPulse var(--dur-pulse) var(--ease-pulse) infinite;
+    }
+
+    .trading-badge.halted {
+      --pulse-glow: rgba(255, 101, 118, 0.36);
+      animation: statusPulse calc(var(--dur-pulse) * 1.4) var(--ease-pulse) infinite;
+    }
+
+    /* Ruhiger Atem-Pulse ueber Glow und leichte Opazitaet, ohne harte An/Aus-Wechsel. */
+    @keyframes statusPulse {
+      0%,
+      100% {
+        opacity: 1;
+        box-shadow: 0 0 0 0 transparent;
+      }
+      50% {
+        opacity: 0.84;
+        box-shadow: 0 0 14px 1px var(--pulse-glow, rgba(85, 232, 255, 0.3));
+      }
+    }
+
+    @keyframes overlayIn {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+
+    @keyframes modalIn {
+      from {
+        opacity: 0;
+        transform: translateY(14px) scale(0.98);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .toast.error {
+      animation:
+        toastIn var(--dur-micro-slow) var(--ease-out-premium) both,
+        errorNudge var(--dur-micro-slow) var(--ease-in-out-soft) var(--dur-micro-slow) 1 both;
+    }
+
+    @keyframes errorNudge {
+      0%,
+      100% {
+        transform: translateX(0);
+      }
+      30% {
+        transform: translateX(-4px);
+      }
+      65% {
+        transform: translateX(3px);
+      }
+    }
+
+    .alarm-zone {
+      display: grid;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .alarm-zone:empty {
+      display: none;
+    }
+
+    .alarm-banner {
+      --pulse-glow: rgba(255, 101, 118, 0.34);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px 14px;
+      padding: 11px 14px;
+      color: var(--white);
+      border: 1px solid rgba(255, 101, 118, 0.55);
+      border-left: 3px solid var(--red);
+      background: rgba(255, 101, 118, 0.08);
+      font-size: 0.76rem;
+      animation: statusPulse var(--dur-pulse) var(--ease-pulse) infinite;
+    }
+
+    .alarm-banner .alarm-kind {
+      color: var(--red);
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+
+    .alarm-banner .alarm-message {
+      flex: 1 1 220px;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .alarm-banner .alarm-time {
+      color: var(--muted);
+      font-size: 0.68rem;
+    }
+
+    /* Motion-System (Direktive 5B): Asset-Universe und Skeleton */
+
+    .universe-body {
+      padding: 19px;
+    }
+
+    .universe-body h3 {
+      margin: 4px 0 0;
+    }
+
+    .universe-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .universe-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .universe-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+      gap: 10px;
+    }
+
+    .universe-card {
+      display: grid;
+      min-width: 0;
+      gap: 6px;
+      padding: 12px 13px;
+      border: 1px solid var(--line);
+      background: rgba(10, 31, 42, 0.62);
+      animation: cardIn var(--dur-enter) var(--ease-out-premium) backwards;
+      animation-delay: calc(min(var(--stagger-index, 0), 24) * var(--stagger-step));
+      transition:
+        transform var(--dur-micro-slow) var(--ease-out-premium),
+        border-color var(--dur-micro-slow) var(--ease-out-premium),
+        box-shadow var(--dur-micro-slow) var(--ease-out-premium);
+    }
+
+    .universe-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--line-bright);
+      box-shadow: 0 0 18px rgba(67, 220, 249, 0.14);
+    }
+
+    .universe-card.has-position {
+      border-color: rgba(85, 240, 160, 0.5);
+    }
+
+    .universe-card.blocked {
+      opacity: 0.6;
+    }
+
+    .universe-symbol {
+      overflow-wrap: anywhere;
+      color: var(--white);
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+
+    .universe-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 0.7rem;
+    }
+
+    .universe-row .pos {
+      color: var(--green);
+    }
+
+    .universe-row .neg {
+      color: var(--red);
+    }
+
+    .universe-error {
+      display: grid;
+      gap: 10px;
+      justify-items: center;
+      padding: 28px;
+      color: var(--red);
+      border: 1px solid rgba(255, 101, 118, 0.55);
+      background: rgba(255, 101, 118, 0.07);
+      text-align: center;
+      font-size: 0.8rem;
+      animation: cardIn var(--dur-enter) var(--ease-out-premium) both;
+    }
+
+    .universe-error p {
+      margin: 0;
+      color: var(--white);
+      overflow-wrap: anywhere;
+    }
+
+    .skeleton {
+      min-height: 74px;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(100deg, transparent 20%, rgba(165, 247, 255, 0.09) 50%, transparent 80%) 0 0 / 220% 100%,
+        rgba(10, 31, 42, 0.5);
+      animation: shimmer 1400ms var(--ease-in-out-soft) infinite;
+    }
+
+    @keyframes shimmer {
+      from {
+        background-position: 120% 0, 0 0;
+      }
+      to {
+        background-position: -120% 0, 0 0;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .universe-grid {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      }
+
+      .alarm-banner .action-button {
+        width: 100%;
       }
     }
 
@@ -1718,6 +2007,23 @@
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
       }
+
+      /* Dauer-Pulse und Shimmer ganz abschalten, Hover-Bewegung entfernen.
+         !important ist noetig, um die Komponenten-Regeln zu ueberstimmen. */
+      .mode-badge.live,
+      .trading-badge.running,
+      .trading-badge.halted,
+      .alarm-banner,
+      .skeleton {
+        animation: none !important;
+      }
+
+      .proposal-card:hover,
+      .universe-card:hover,
+      .action-button:hover:not(:disabled),
+      .action-button:active:not(:disabled) {
+        transform: none !important;
+      }
     }
   </style>
 </head>
@@ -1782,9 +2088,14 @@
       </div>
     </div>
 
+    <div id="alarm-zone" class="alarm-zone" role="region" aria-label="Offene Alarme" aria-live="assertive"></div>
+
     <nav class="tabs" role="tablist" aria-label="Dashboard-Bereiche">
       <button class="tab-button active" id="signals-tab" role="tab" aria-selected="true" aria-controls="signals-panel" data-tab="signals">
         ◈ Signale
+      </button>
+      <button class="tab-button" id="universe-tab" role="tab" aria-selected="false" aria-controls="universe-panel" data-tab="universe">
+        ◇ Universe
       </button>
       <button class="tab-button" id="backtest-tab" role="tab" aria-selected="false" aria-controls="backtest-panel" data-tab="backtest">
         ◌ Backtest
@@ -1929,6 +2240,22 @@
         </section>
       </section>
 
+      <section id="universe-panel" class="tab-panel" role="tabpanel" aria-labelledby="universe-tab">
+        <div class="hud-panel universe-body">
+          <div class="universe-toolbar">
+            <div>
+              <div class="eyebrow">Bitget // USDT-Perpetuals</div>
+              <h3 id="universe-title">Asset-Universe</h3>
+            </div>
+            <div id="universe-meta" class="universe-meta"></div>
+            <button id="universe-refresh" class="action-button" type="button">AKTUALISIEREN</button>
+          </div>
+          <div id="universe-grid" class="universe-grid" aria-live="polite" aria-busy="false">
+            <div class="empty-state">Anmelden, um die Asset-Universe zu laden.</div>
+          </div>
+        </div>
+      </section>
+
       <section id="backtest-panel" class="tab-panel" role="tabpanel" aria-labelledby="backtest-tab">
         <form id="backtest-form" class="hud-panel backtest-form">
           <div class="field">
@@ -1995,7 +2322,13 @@
       countdownInterval: null,
       busyScan: false,
       auth: null,
-      tradingState: "unknown"
+      tradingState: "unknown",
+      alarms: [],
+      alarmSignature: "",
+      alarmsLoading: false,
+      alarmError: "",
+      universeLoaded: false,
+      universeLoading: false
     };
 
     const COLORS = {
@@ -2140,6 +2473,13 @@
       state.auth = session;
       storeSession(session);
       renderAuth();
+
+      if (session) {
+        loadAlarms();
+        if ($("#universe-panel")?.classList.contains("active")) loadUniverse();
+      } else {
+        resetSessionViews();
+      }
     }
 
     function showLogin(message = "") {
@@ -2301,7 +2641,11 @@
 
         if (!response.ok) {
           const detail = typeof data.detail === "string" ? data.detail : data.detail?.message;
-          throw new Error(detail || `HTTP ${response.status}`);
+          const httpError = new Error(detail || `HTTP ${response.status}`);
+          /* Status und Roh-Detail mitgeben, damit Aufrufer z. B. 409 gezielt behandeln koennen. */
+          httpError.status = response.status;
+          httpError.detail = data.detail;
+          throw httpError;
         }
 
         return data;
@@ -2423,7 +2767,7 @@
           : "";
 
       return `
-        <article class="hud-panel proposal-card sweep" style="animation-delay:${index * 55}ms">
+        <article class="hud-panel proposal-card sweep" style="--stagger-index:${Number(index) || 0}">
           <div class="card-top">
             <div>
               <span class="symbol-name">${escapeHtml(signal.symbol || "UNBEKANNT")}</span>
@@ -2569,11 +2913,22 @@
 
       try {
         const body = useUniverse ? { timeframe, limit } : { symbols, timeframe, limit };
-        const started = await api("/scan", "POST", body);
+        let started;
+        try {
+          started = await api("/scan", "POST", body);
+        } catch (error) {
+          const runningJobId = error?.status === 409 ? error.detail?.job_id : null;
+          if (!runningJobId) throw error;
+          /* Scanner ist schon beschaeftigt: dem laufenden Job folgen statt abzubrechen. */
+          addLog(`Scanner bereits beschäftigt, warte auf laufenden Job ${String(runningJobId).slice(0, 13)}.`, "info");
+          started = { job_id: runningJobId, progress: null };
+        }
         if (!started?.job_id) {
           throw new Error("Server lieferte keine Scan-Job-ID");
         }
-        $("#signal-status").textContent = scanProgressText(started.progress);
+        $("#signal-status").textContent = started.progress
+          ? scanProgressText(started.progress)
+          : "SCAN LÄUFT BEREITS · WARTE AUF ERGEBNIS";
         const finished = await waitForScan(started.job_id);
         const response = finished.result || {};
         if (finished.failed) {
@@ -2714,6 +3069,8 @@
     function renderBacktest(data) {
       const container = $("#backtest-result");
       const entries = Object.entries(data || {});
+      /* Laeuft nach dem synchronen innerHTML-Render weiter unten. */
+      window.requestAnimationFrame(() => animateMetricCounts(container));
 
       if (!entries.length) {
         container.innerHTML = '<div class="empty-state">Der Backtest lieferte keine Ergebnisse.</div>';
@@ -2733,20 +3090,20 @@
           : "—";
 
         const metrics = [
-          ["OOS Trades", result.oos_n_trades ?? 0, `${result.n_folds ?? 0} Folds`, ""],
-          ["Win Rate", formatPercent(result.oos_win_rate), "OOS gesamt", metricClass((finiteNumber(result.oos_win_rate) ?? 0) - 0.5)],
-          ["Sharpe", formatNumber(result.oos_sharpe), "annualisiert", metricClass(result.oos_sharpe)],
-          ["Sortino", formatNumber(result.oos_sortino), "annualisiert", metricClass(result.oos_sortino)],
-          ["Total R", formatNumber(result.oos_total_r, 3, true), "Risiko-Einheiten", metricClass(result.oos_total_r)],
-          ["Profit Factor", formatNumber(result.oos_profit_factor), "> 1.0 profitabel", (finiteNumber(result.oos_profit_factor) ?? 0) >= 1 ? "pos" : "neg"],
-          ["Max Drawdown", `${formatNumber(result.oos_max_drawdown_pct, 1)}%`, "OOS kumuliert", (finiteNumber(result.oos_max_drawdown_pct) ?? 0) > 25 ? "neg" : ""],
-          ["Kosten", `$${formatNumber(result.oos_cost_usd, 2)}`, `${((finiteNumber(result.cost_taker_fee) ?? 0) * 100).toFixed(2)}% + ${formatNumber(result.cost_slippage_bps, 0)} bps`, ""]
+          ["OOS Trades", result.oos_n_trades ?? 0, `${result.n_folds ?? 0} Folds`, "", { raw: result.oos_n_trades, kind: "int" }],
+          ["Win Rate", formatPercent(result.oos_win_rate), "OOS gesamt", metricClass((finiteNumber(result.oos_win_rate) ?? 0) - 0.5), { raw: result.oos_win_rate, kind: "percent" }],
+          ["Sharpe", formatNumber(result.oos_sharpe), "annualisiert", metricClass(result.oos_sharpe), { raw: result.oos_sharpe, decimals: 2 }],
+          ["Sortino", formatNumber(result.oos_sortino), "annualisiert", metricClass(result.oos_sortino), { raw: result.oos_sortino, decimals: 2 }],
+          ["Total R", formatNumber(result.oos_total_r, 3, true), "Risiko-Einheiten", metricClass(result.oos_total_r), { raw: result.oos_total_r, decimals: 3, signed: true }],
+          ["Profit Factor", formatNumber(result.oos_profit_factor), "> 1.0 profitabel", (finiteNumber(result.oos_profit_factor) ?? 0) >= 1 ? "pos" : "neg", { raw: result.oos_profit_factor, decimals: 2 }],
+          ["Max Drawdown", `${formatNumber(result.oos_max_drawdown_pct, 1)}%`, "OOS kumuliert", (finiteNumber(result.oos_max_drawdown_pct) ?? 0) > 25 ? "neg" : "", { raw: result.oos_max_drawdown_pct, decimals: 1, suffix: "%" }],
+          ["Kosten", `$${formatNumber(result.oos_cost_usd, 2)}`, `${((finiteNumber(result.cost_taker_fee) ?? 0) * 100).toFixed(2)}% + ${formatNumber(result.cost_slippage_bps, 0)} bps`, "", { raw: result.oos_cost_usd, decimals: 2, prefix: "$" }]
         ];
 
-        const metricHtml = metrics.map(([label, value, detail, className]) => `
+        const metricHtml = metrics.map(([label, value, detail, className, countSpec]) => `
           <div class="metric">
             <label>${escapeHtml(label)}</label>
-            <strong class="${escapeHtml(className)}">${escapeHtml(value)}</strong>
+            <strong class="${escapeHtml(className)}" ${metricCountAttrs(countSpec)}>${escapeHtml(value)}</strong>
             <small>${escapeHtml(detail)}</small>
           </div>
         `).join("");
@@ -2973,6 +3330,285 @@
       }
     }
 
+    /* ── Motion-Helfer (Direktive 5B) ───────────────────────────────────── */
+
+    function prefersReducedMotion() {
+      return Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    }
+
+    const countUpFrames = new WeakMap();
+
+    /* Zaehlt eine Zahl mit Ease-out hoch. Bei reduced-motion wird der Endwert sofort gesetzt. */
+    function countUp(element, target, format, duration = 900) {
+      if (!element) return;
+
+      const previous = countUpFrames.get(element);
+      if (previous) window.cancelAnimationFrame(previous);
+      countUpFrames.delete(element);
+
+      const end = finiteNumber(target);
+      if (end === null) {
+        element.textContent = "—";
+        return;
+      }
+
+      if (prefersReducedMotion() || end === 0) {
+        element.textContent = format(end);
+        return;
+      }
+
+      const startTime = window.performance.now();
+      const step = (now) => {
+        const progress = clamp((now - startTime) / duration, 0, 1);
+        const eased = 1 - Math.pow(1 - progress, 4);
+
+        if (progress < 1) {
+          element.textContent = format(end * eased);
+          countUpFrames.set(element, window.requestAnimationFrame(step));
+        } else {
+          element.textContent = format(end);
+          countUpFrames.delete(element);
+        }
+      };
+
+      countUpFrames.set(element, window.requestAnimationFrame(step));
+    }
+
+    /* Data-Attribute fuer eine zaehlbare Metrik. Leer, wenn der Rohwert keine endliche Zahl ist. */
+    function metricCountAttrs(spec) {
+      if (!spec) return "";
+      const raw = finiteNumber(spec.raw);
+      if (raw === null) return "";
+
+      return [
+        `data-count="${escapeHtml(String(raw))}"`,
+        `data-count-kind="${escapeHtml(spec.kind || "number")}"`,
+        `data-count-decimals="${escapeHtml(String(spec.decimals ?? 2))}"`,
+        spec.signed ? 'data-count-signed="1"' : "",
+        spec.prefix ? `data-count-prefix="${escapeHtml(spec.prefix)}"` : "",
+        spec.suffix ? `data-count-suffix="${escapeHtml(spec.suffix)}"` : ""
+      ].filter(Boolean).join(" ");
+    }
+
+    function animateMetricCounts(root) {
+      if (!root) return;
+
+      root.querySelectorAll("[data-count]").forEach((element) => {
+        const kind = element.dataset.countKind || "number";
+        const decimals = Number.parseInt(element.dataset.countDecimals, 10);
+        const signed = element.dataset.countSigned === "1";
+        const prefix = element.dataset.countPrefix || "";
+        const suffix = element.dataset.countSuffix || "";
+
+        const format = (value) => {
+          if (kind === "int") return `${prefix}${Math.round(value)}${suffix}`;
+          if (kind === "percent") return `${prefix}${formatPercent(value)}${suffix}`;
+          return `${prefix}${formatNumber(value, Number.isInteger(decimals) ? decimals : 2, signed)}${suffix}`;
+        };
+
+        countUp(element, element.dataset.count, format);
+      });
+    }
+
+    /* ── Alarme ─────────────────────────────────────────────────────────── */
+
+    function formatAlarmTime(value) {
+      if (!value) return "";
+      const date = new Date(value);
+      return Number.isNaN(date.getTime())
+        ? String(value)
+        : date.toLocaleString("de-CH", { hour12: false });
+    }
+
+    function renderAlarms() {
+      const zone = $("#alarm-zone");
+      if (!zone) return;
+
+      const alarms = state.auth ? state.alarms : [];
+      const signature = alarms.map((alarm) => String(alarm.id)).join(",");
+
+      /* Unveraenderte Alarme nicht neu rendern, sonst liest der Screenreader sie bei jedem Poll erneut vor. */
+      if (signature === state.alarmSignature) return;
+      state.alarmSignature = signature;
+
+      zone.innerHTML = alarms.map((alarm) => `
+        <div class="alarm-banner">
+          <span class="alarm-kind">${escapeHtml(String(alarm.kind || "ALARM").toUpperCase())}</span>
+          <span class="alarm-message">${escapeHtml(String(alarm.message || ""))}${alarm.ref ? ` · ${escapeHtml(String(alarm.ref))}` : ""}</span>
+          <time class="alarm-time">${escapeHtml(formatAlarmTime(alarm.created_at))}</time>
+          <button class="action-button compact" type="button" data-alarm-ack="${escapeHtml(String(alarm.id))}">BESTÄTIGEN</button>
+        </div>
+      `).join("");
+    }
+
+    async function loadAlarms() {
+      if (!state.auth || state.alarmsLoading) return;
+      state.alarmsLoading = true;
+
+      try {
+        const data = await api("/control/alarms");
+        state.alarms = Array.isArray(data?.alarms) ? data.alarms : [];
+        state.alarmError = "";
+        renderAlarms();
+      } catch (error) {
+        const message = error?.message || "unbekannter Fehler";
+        /* Gleichen Fehler beim 30-s-Poll nur einmal protokollieren. */
+        if (state.auth && message !== state.alarmError) {
+          addLog(`Alarme nicht abrufbar: ${message}`, "error");
+        }
+        state.alarmError = message;
+      } finally {
+        state.alarmsLoading = false;
+      }
+    }
+
+    async function acknowledgeAlarm(alarmId, button) {
+      const id = Number.parseInt(alarmId, 10);
+      if (!Number.isInteger(id)) return;
+      if (button) button.disabled = true;
+
+      try {
+        await api(`/control/alarms/${id}/ack`, "POST");
+        state.alarms = state.alarms.filter((alarm) => Number(alarm.id) !== id);
+        renderAlarms();
+        addLog(`Alarm ${id} bestätigt.`, "info");
+      } catch (error) {
+        if (button) button.disabled = false;
+        toast(`Alarm konnte nicht bestätigt werden: ${error?.message || "unbekannter Fehler"}`, "error");
+        loadAlarms();
+      }
+    }
+
+    /* ── Asset-Universe ─────────────────────────────────────────────────── */
+
+    function normalizeSymbol(value) {
+      return String(value || "").toUpperCase().split(":")[0];
+    }
+
+    function renderUniverseLoading() {
+      const grid = $("#universe-grid");
+      grid.setAttribute("aria-busy", "true");
+      grid.innerHTML = Array.from({ length: 8 }, () => '<div class="skeleton" aria-hidden="true"></div>').join("");
+    }
+
+    function renderUniverseError(message) {
+      const grid = $("#universe-grid");
+      grid.setAttribute("aria-busy", "false");
+      $("#universe-meta").innerHTML = "";
+      grid.innerHTML = `
+        <div class="universe-error" role="alert">
+          <p>Universe konnte nicht geladen werden: ${escapeHtml(message)}</p>
+          <button class="action-button compact" type="button" data-universe-retry>ERNEUT VERSUCHEN</button>
+        </div>
+      `;
+    }
+
+    function renderUniverse(data) {
+      const grid = $("#universe-grid");
+      const meta = $("#universe-meta");
+      const symbols = Array.isArray(data?.symbols) ? data.symbols : [];
+      const explicit = data?.allowlist_mode === "explicit";
+      const allowlist = new Set((Array.isArray(data?.allowlist) ? data.allowlist : []).map(normalizeSymbol));
+      const openPositions = new Set((Array.isArray(data?.open_positions) ? data.open_positions : []).map(normalizeSymbol));
+      const performanceBySymbol = {};
+
+      if (data?.performance && typeof data.performance === "object") {
+        Object.entries(data.performance).forEach(([symbol, stats]) => {
+          performanceBySymbol[normalizeSymbol(symbol)] = stats;
+        });
+      }
+
+      const fetchedAt = finiteNumber(data?.fetched_at);
+      const fetchedText = fetchedAt
+        ? new Date(fetchedAt * 1000).toLocaleTimeString("de-CH", { hour12: false })
+        : "nie";
+      const stale = Boolean(data?.stale);
+
+      meta.innerHTML = `
+        <span class="status-chip"><span id="universe-count">0</span> PERPS</span>
+        <span class="status-chip">${explicit ? `ALLOWLIST · ${allowlist.size}` : "ALLOWLIST · ALLE"}</span>
+        <span class="status-chip">${openPositions.size} ${openPositions.size === 1 ? "POSITION" : "POSITIONEN"}</span>
+        <span class="status-chip"${stale ? ` style="color:${COLORS.amber}"` : ""} title="${stale && data?.error ? escapeHtml(String(data.error)) : ""}">${stale ? "VERALTET" : "STAND"} ${escapeHtml(fetchedText)}</span>
+      `;
+      countUp($("#universe-count"), symbols.length, (value) => String(Math.round(value)));
+
+      grid.setAttribute("aria-busy", "false");
+
+      if (!symbols.length) {
+        if (data?.error) {
+          renderUniverseError(String(data.error));
+          return;
+        }
+        grid.innerHTML = '<div class="empty-state">Keine USDT-Perpetuals gefunden.</div>';
+        return;
+      }
+
+      grid.innerHTML = symbols.map((symbol, index) => {
+        const key = normalizeSymbol(symbol);
+        const stats = performanceBySymbol[key];
+        const pnl = finiteNumber(stats?.realized_pnl_usd);
+        const trades = Number.parseInt(stats?.trades, 10) || 0;
+        const hasPosition = openPositions.has(key);
+        const blocked = explicit && !allowlist.has(key);
+        const classes = ["universe-card", hasPosition ? "has-position" : "", blocked ? "blocked" : ""]
+          .filter(Boolean)
+          .join(" ");
+        const status = hasPosition ? "POSITION OFFEN" : blocked ? "NICHT FREIGEGEBEN" : "HANDELBAR";
+        const pnlClass = pnl === null ? "" : pnl >= 0 ? "pos" : "neg";
+
+        return `
+          <article class="${classes}" style="--stagger-index:${index}">
+            <span class="universe-symbol">${escapeHtml(String(symbol))}</span>
+            <div class="universe-row"><span>Status</span><span>${status}</span></div>
+            <div class="universe-row"><span>Realisiert</span><span class="${pnlClass}">${pnl === null ? "—" : `${escapeHtml(formatNumber(pnl, 2, true))} USD`}</span></div>
+            <div class="universe-row"><span>Trades</span><span>${trades}</span></div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    async function loadUniverse() {
+      if (!state.auth) {
+        showLogin();
+        return;
+      }
+      if (state.universeLoading) return;
+
+      state.universeLoading = true;
+      const button = $("#universe-refresh");
+      button.disabled = true;
+      renderUniverseLoading();
+
+      try {
+        const data = await api("/universe");
+        renderUniverse(data);
+        state.universeLoaded = true;
+        if (data?.stale && data?.error) {
+          addLog(`Universe veraltet: ${data.error}`, "error");
+        }
+      } catch (error) {
+        renderUniverseError(error?.message || "unbekannter Fehler");
+      } finally {
+        state.universeLoading = false;
+        button.disabled = false;
+      }
+    }
+
+    function resetSessionViews() {
+      state.alarms = [];
+      state.alarmError = "";
+      renderAlarms();
+
+      state.universeLoaded = false;
+      const grid = $("#universe-grid");
+      const meta = $("#universe-meta");
+      if (meta) meta.innerHTML = "";
+      if (grid) {
+        grid.setAttribute("aria-busy", "false");
+        grid.innerHTML = '<div class="empty-state">Anmelden, um die Asset-Universe zu laden.</div>';
+      }
+    }
+
     function switchTab(tabName) {
       document.querySelectorAll(".tab-button").forEach((button) => {
         const active = button.dataset.tab === tabName;
@@ -2983,6 +3619,10 @@
       document.querySelectorAll(".tab-panel").forEach((panel) => {
         panel.classList.toggle("active", panel.id === `${tabName}-panel`);
       });
+
+      if (tabName === "universe" && state.auth && !state.universeLoaded) {
+        loadUniverse();
+      }
     }
 
     async function runBootSequence() {
@@ -3014,6 +3654,17 @@
         return;
       }
 
+      const alarmButton = event.target.closest("[data-alarm-ack]");
+      if (alarmButton) {
+        await acknowledgeAlarm(alarmButton.dataset.alarmAck, alarmButton);
+        return;
+      }
+
+      if (event.target.closest("[data-universe-retry]")) {
+        await loadUniverse();
+        return;
+      }
+
       const actionButton = event.target.closest("[data-action]");
       if (!actionButton) return;
 
@@ -3039,6 +3690,7 @@
     });
     $("#auth-button").addEventListener("click", () => (state.auth ? logout() : showLogin()));
     $("#halt-button").addEventListener("click", toggleTrading);
+    $("#universe-refresh").addEventListener("click", loadUniverse);
 
     window.addEventListener("resize", () => {
       const visibleResults = document.querySelectorAll("[id^='equity-']");
@@ -3059,8 +3711,14 @@
     addLog("HUD initialisiert. Fail-closed-Freigabeworkflow aktiv.", "info");
     loadHealth();
     window.setInterval(loadHealth, 30000);
+    window.setInterval(() => {
+      if (state.auth) loadAlarms();
+    }, 30000);
     initAuth().then(() => {
-      if (state.auth) loadProposals();
+      if (state.auth) {
+        loadProposals();
+        loadAlarms();
+      }
     });
     runBootSequence();
   </script>
