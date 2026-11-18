@@ -9,12 +9,37 @@ Die Exchange-native Stop-Order lebt unabhängig vom Agent-Prozess.
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import asdict
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .config import Config
 from .models import ExecutionResult
+
+logger = logging.getLogger(__name__)
+
+# Bitget-Filter für Position-TP/SL-Orders (pos_loss/pos_profit), die der Relay platziert.
+_TPSL_PLAN_FILTER = "profit_loss"
+
+
+def _perp_symbol(symbol: str) -> Optional[str]:
+    """Engine-Symbol -> Perp-Symbol (BTC/USDT -> BTC/USDT:USDT). None bei ungültigem Symbol."""
+    from .relay import to_perp_symbol
+
+    try:
+        return to_perp_symbol(symbol)
+    except ValueError:
+        return None
+
+
+def _find_by_id(orders: Any, order_id: str) -> Optional[Dict[str, Any]]:
+    if not isinstance(orders, list):
+        return None
+    for order in orders:
+        if isinstance(order, dict) and str(order.get("id")) == str(order_id):
+            return dict(order)
+    return None
 
 
 # ── Hilfsfunktion: Stop-Seite bestimmen ──────────────────────────────────────
@@ -90,6 +115,8 @@ class LiveBroker:
         self.cfg = cfg
         from .data import create_exchange
         self.exchange = create_exchange(cfg.exchange)
+        # Demo: CCXT sendet PAPTRADING: 1, gleiche Symbole wie Live (siehe relay._build_exchange).
+        self.exchange.set_sandbox_mode(bool(cfg.exchange.demo))
 
     def place_order(
         self, symbol: str, side: str, qty: float, price: Optional[float]
@@ -110,7 +137,9 @@ class LiveBroker:
                 raw={"error": "Positionsgröße über Limit"},
             )
 
-        if not self.cfg.live_limits.symbol_allowed(symbol):
+        from .universe import live_symbol_allowed
+
+        if not live_symbol_allowed(self.cfg, symbol):
             return ExecutionResult(
                 proposal_id="",
                 symbol=symbol,
@@ -214,18 +243,66 @@ class LiveBroker:
 
         return stop_id, target_id
 
-    def cancel_order(self, symbol: str, order_id: str) -> bool:
-        """Cancelt eine Order auf der Exchange. Gibt True zurück bei Erfolg."""
+    def _open_tpsl_orders(self, perp: str) -> Optional[List[Dict[str, Any]]]:
         try:
-            self.exchange.cancel_order(order_id, symbol)
+            orders = self.exchange.fetch_open_orders(perp, None, None, {"planType": _TPSL_PLAN_FILTER})
+        except Exception as exc:
+            logger.warning("Offene TP/SL-Orders für %s nicht abrufbar: %s", perp, exc)
+            return None
+        return orders if isinstance(orders, list) else None
+
+    def cancel_order(self, symbol: str, order_id: str) -> bool:
+        """Cancelt eine Order auf der Exchange. Gibt True zurück bei Erfolg.
+
+        Stop/Target des Relays sind Trigger-Orders (pos_loss/pos_profit). Ihr
+        planType wird aus der offenen Order gelesen und an den Trigger-Cancel
+        übergeben. Andere Orders laufen über den normalen Cancel.
+        """
+        perp = _perp_symbol(symbol)
+        if perp is None:
+            return False
+        trigger_order = _find_by_id(self._open_tpsl_orders(perp), order_id)
+        if trigger_order is not None:
+            params: Dict[str, Any] = {"trigger": True}
+            plan_type = (trigger_order.get("info") or {}).get("planType")
+            if plan_type:
+                params["planType"] = plan_type
+            try:
+                self.exchange.cancel_order(order_id, perp, params)
+                return True
+            except Exception as exc:
+                logger.warning("Trigger-Cancel %s für %s fehlgeschlagen: %s", order_id, perp, exc)
+                return False
+        try:
+            self.exchange.cancel_order(order_id, perp)
             return True
         except Exception:
             return False
 
     def fetch_order(self, symbol: str, order_id: str) -> Optional[Dict[str, Any]]:
-        """Holt den aktuellen Status einer Order von der Exchange."""
+        """Holt den aktuellen Status einer Order von der Exchange.
+
+        Reihenfolge: offene TP/SL-Trigger-Orders, Trigger-Historie (ausgelöst =
+        status 'closed'), dann normale Order. None, wenn nichts gefunden wird.
+        """
+        perp = _perp_symbol(symbol)
+        if perp is None:
+            return None
+        found = _find_by_id(self._open_tpsl_orders(perp), order_id)
+        if found is not None:
+            return found
         try:
-            return dict(self.exchange.fetch_order(order_id, symbol))
+            history = self.exchange.fetch_canceled_and_closed_orders(
+                perp, None, None, {"planType": _TPSL_PLAN_FILTER}
+            )
+        except Exception as exc:
+            logger.warning("Trigger-Historie für %s nicht abrufbar: %s", perp, exc)
+            history = None
+        found = _find_by_id(history, order_id)
+        if found is not None:
+            return found
+        try:
+            return dict(self.exchange.fetch_order(order_id, perp))
         except Exception:
             return None
 

@@ -63,8 +63,18 @@ Der Relay ist die Ausführungsschicht zwischen dem Freigabe-Workflow (`graph.py`
 5. **Paper unberührt:** Die bestehenden Paper-Tests laufen unverändert durch.
 6. **Keine Live-Tests ohne Freigabe:** Tests nutzen einen Mock für CCXT. Es wird keine echte Order an Bitget gesendet.
 
-## 7. Offene Entscheidungen (vom Auftraggeber zu treffen)
+## 7. Entscheidungen des Auftraggebers
 
-- Verhalten, wenn der Stop nach dem Entry nicht platziert werden kann. Optionen: Position sofort schließen, Control-Plane halten und Alarm, oder nur Alarm. Bis zur Entscheidung gilt: Control-Plane halten.
-- Ob OCO über CCXT bei Bitget unterstützt wird. Das ist vor der Implementierung gegen die Bitget-Dokumentation und die installierte CCXT-Version zu prüfen. Der aktuelle Code rät den Pfad und fällt bei Fehlern still zurück.
-- Ob der Relay Market- oder Limit-Orders für den Entry verwendet.
+- **Stop scheitert nach dem Entry (entschieden):** Der Relay schließt die Position sofort per Market-Order, hält die Control-Plane (`halt()`) und löst einen Alarm aus. Grund, Order-ID und Zeitstempel gehen in den State-Store. `resume()` ist erst möglich, nachdem der Alarm bestätigt wurde. Im Code existiert bisher kein Alarm-Mechanismus (Suche nach alarm, alert, notify, webhook und telegram in `tradeagent/*.py` ohne Treffer). Annahme für diese Phase: Der Alarm ist ein Eintrag im State-Store plus ein Log-Eintrag auf ERROR-Level. Ein externer Kanal gehört nicht zu dieser Phase.
+- **OCO (geprüft, entschieden):** Installiert ist CCXT 4.5.93. Weder `ccxt/bitget.py` noch `ccxt/base/exchange.py` enthalten `createOcoOrder` oder `create_oco_order`. Native OCO entfällt, der bestehende Aufruf in `place_stop_orders()` scheitert immer. Der Relay platziert Stop und Target als getrennte Exchange-Orders. `monitor.py` ist kein clientseitiger Stop-Wächter. Es bricht nur die Gegenorder ab, sobald eine Seite gefüllt ist (manuelles OCO).
+- **Entry-Typ (entschieden):** Market-Order. Das entspricht den simulierten Market-Entries im Backtest.
+- **Vor der Implementierung zu klären:** `create_exchange()` setzt keinen `defaultType`. CCXT-Bitget nutzt dann `spot` (`bitget.py` Zeile 1663). Der Fallback sendet `type="stop_market"` mit `reduceOnly=True`. In `bitget.py` gibt es keinen Treffer für `stop_market`. Der Fallback ist für Spot nicht gültig, belegt durch den Code in CCXT 4.5.93:
+  - `bitget.py` Zeile 5796 übergibt `orderType` unverändert (`'orderType': type`), also `stop_market`.
+  - Der Spot-Zweig (ab Zeile 5940) setzt bei einem Trigger nur `planType` und `triggerPrice`. Er ändert `orderType` nicht und behandelt `reduceOnly` nicht.
+  - Ob Bitget `stop_market` als `orderType` akzeptiert, habe ich nicht gegen die Bitget-API-Doku geprüft. Der Relay darf das nicht raten.
+  - Der Code arbeitet mit `reduceOnly`, also mit Futures-Semantik. CCXT nutzt ohne `defaultType` aber Spot.
+  - Belegt: Der Spot-Zweig von `createOrder` lehnt Stop-Loss- und Take-Profit-Trigger ab (`bitget.py`, ab Zeile 5940, `InvalidOrder ... only swap markets`). Auf Spot kann der Relay den Schutz-Stop über CCXT also nicht platzieren.
+- **Produkt (entschieden):** USDT-Perpetuals (`swap`). Der Relay erzeugt die Exchange mit `options.defaultType = "swap"`. Stop und Target sind serverseitige reduceOnly-Trigger-Orders.
+- **Margin-Modus (entschieden):** `isolated`, konfigurierbar über `BITGET_MARGIN_MODE`. Der Relay setzt den Modus vor dem Entry pro Symbol. Scheitert das, wird keine Order gesendet.
+- **Hebel (entschieden):** 3x, konfigurierbar über `BITGET_LEVERAGE`. Der Relay setzt den Hebel vor dem Entry pro Symbol. Scheitert das, wird keine Order gesendet. Sanity-Check vor dem Entry: Die Stop-Distanz in Prozent muss kleiner sein als die grobe Liquidationsdistanz `1 / Hebel` abzüglich eines Puffers für die Maintenance-Margin. Sonst wird die Order abgelehnt.
+- **Symbolformat (entschieden):** Die Engine nutzt `BTC/USDT`. Der Relay mappt zentral auf `BTC/USDT:USDT`. `LIVE_SYMBOL_ALLOWLIST` steht im Perp-Format. Die Allowlist-Prüfung läuft auf dem gemappten Symbol.

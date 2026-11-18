@@ -20,6 +20,7 @@ ENV/
 
 # Secrets / Credentials
 .env
+.env.demo
 *.pem
 *.key
 

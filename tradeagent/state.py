@@ -5,11 +5,12 @@ SQLite-basiert — überlebt Server-Restart. Thread-safe via check_same_thread=F
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 _INITIAL_EQUITY = 1000.0  # Startkapital für Drawdown-Basis; überschreibbar via StateStore(initial_equity=...)
 
@@ -56,6 +57,10 @@ def _row_to_open_pos(r) -> "OpenPosition":
 
 
 # ─── StateStore ───────────────────────────────────────────────────────────────
+
+def _epoch_to_iso(ts: float) -> str:
+    return datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat()
+
 
 class StateStore:
     """Persistente State: offene Positionen + realisierter P&L / Equity-Kurve.
@@ -124,6 +129,51 @@ class StateStore:
                     changed_by  TEXT,
                     changed_at  TEXT,
                     reason      TEXT
+                );
+
+                -- Relay-Belege. Eine Zeile pro (Intent, Rolle). Der Unique-Constraint
+                -- ist der Idempotenz-Schutz: ein zweiter Reserve-Versuch legt nichts an.
+                CREATE TABLE IF NOT EXISTS order_receipts (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    intent_id       TEXT NOT NULL,
+                    role            TEXT NOT NULL,
+                    client_order_id TEXT NOT NULL UNIQUE,
+                    symbol          TEXT NOT NULL,
+                    side            TEXT NOT NULL,
+                    qty             REAL NOT NULL,
+                    status          TEXT NOT NULL,
+                    order_id        TEXT,
+                    fill_price      REAL,
+                    reason          TEXT,
+                    created_at      TEXT NOT NULL,
+                    updated_at      TEXT NOT NULL,
+                    UNIQUE (intent_id, role)
+                );
+
+                CREATE TABLE IF NOT EXISTS alarms (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    kind             TEXT NOT NULL,
+                    message          TEXT NOT NULL,
+                    ref              TEXT,
+                    created_at       TEXT NOT NULL,
+                    acknowledged_at  TEXT,
+                    acknowledged_by  TEXT
+                );
+
+                -- Abgeschlossene Scan-Läufe (Direktive 5A). Ein Eintrag pro Job.
+                CREATE TABLE IF NOT EXISTS scan_runs (
+                    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                    job_id            TEXT NOT NULL UNIQUE,
+                    status            TEXT NOT NULL,
+                    started_at        TEXT NOT NULL,
+                    finished_at       TEXT NOT NULL,
+                    total             INTEGER NOT NULL,
+                    processed         INTEGER NOT NULL,
+                    failed            INTEGER NOT NULL,
+                    signals_found     INTEGER NOT NULL,
+                    proposals_created INTEGER NOT NULL,
+                    error             TEXT,
+                    meta              TEXT NOT NULL
                 );
             """)
             # Equity-Peak initialisieren falls noch nicht vorhanden
@@ -203,6 +253,141 @@ class StateStore:
                 (stop_order_id, target_order_id, proposal_id),
             )
             self._conn.commit()
+
+    # ── Order-Belege (Relay) ──────────────────────────────────────────────────
+
+    def reserve_receipt(
+        self,
+        intent_id: str,
+        role: str,
+        client_order_id: str,
+        symbol: str,
+        side: str,
+        qty: float,
+    ) -> Tuple[Dict[str, Any], bool]:
+        """Reserviert einen Beleg im Status 'pending'.
+
+        Gibt (beleg, reserviert) zurück. reserviert=False heisst: Für diesen
+        Intent und diese Rolle existiert schon ein Beleg, es darf keine Order
+        gesendet werden. Ausnahme: Ein Beleg im Status 'rejected' (nichts
+        gesendet) wird atomar wieder auf 'pending' gesetzt.
+        """
+        now = _now_iso()
+        with self._lock:
+            try:
+                self._conn.execute(
+                    """
+                    INSERT INTO order_receipts
+                        (intent_id, role, client_order_id, symbol, side, qty,
+                         status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+                    """,
+                    (intent_id, role, client_order_id, symbol, side, qty, now, now),
+                )
+                self._conn.commit()
+                reserved = True
+            except sqlite3.IntegrityError:
+                self._conn.rollback()
+                cur = self._conn.execute(
+                    """
+                    UPDATE order_receipts
+                    SET status = 'pending', reason = NULL, qty = ?, updated_at = ?
+                    WHERE intent_id = ? AND role = ? AND status = 'rejected'
+                    """,
+                    (qty, now, intent_id, role),
+                )
+                self._conn.commit()
+                reserved = cur.rowcount == 1
+            cur = self._conn.execute(
+                "SELECT * FROM order_receipts WHERE intent_id = ? AND role = ?",
+                (intent_id, role),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError(
+                f"Beleg für {intent_id}/{role} nicht reservierbar (client_order_id-Kollision)."
+            )
+        return dict(row), reserved
+
+    def update_receipt(
+        self,
+        intent_id: str,
+        role: str,
+        status: str,
+        order_id: Optional[str] = None,
+        fill_price: Optional[float] = None,
+        reason: Optional[str] = None,
+    ) -> None:
+        """Aktualisiert Status und Ergebnis eines Belegs. None-Werte bleiben unverändert."""
+        with self._lock:
+            self._conn.execute(
+                """
+                UPDATE order_receipts
+                SET status = ?,
+                    order_id = COALESCE(?, order_id),
+                    fill_price = COALESCE(?, fill_price),
+                    reason = COALESCE(?, reason),
+                    updated_at = ?
+                WHERE intent_id = ? AND role = ?
+                """,
+                (status, order_id, fill_price, reason, _now_iso(), intent_id, role),
+            )
+            self._conn.commit()
+
+    def get_receipt(self, intent_id: str, role: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM order_receipts WHERE intent_id = ? AND role = ?",
+                (intent_id, role),
+            )
+            row = cur.fetchone()
+        return dict(row) if row is not None else None
+
+    def list_receipts(self, intent_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        with self._lock:
+            if intent_id is None:
+                cur = self._conn.execute("SELECT * FROM order_receipts ORDER BY id")
+            else:
+                cur = self._conn.execute(
+                    "SELECT * FROM order_receipts WHERE intent_id = ? ORDER BY id",
+                    (intent_id,),
+                )
+            rows = cur.fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Alarme ────────────────────────────────────────────────────────────────
+
+    def raise_alarm(self, kind: str, message: str, ref: Optional[str] = None) -> int:
+        """Legt einen unbestätigten Alarm an und gibt seine ID zurück."""
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO alarms (kind, message, ref, created_at) VALUES (?, ?, ?, ?)",
+                (kind, message, ref, _now_iso()),
+            )
+            self._conn.commit()
+            return int(cur.lastrowid)
+
+    def open_alarms(self) -> List[Dict[str, Any]]:
+        """Alle noch nicht bestätigten Alarme."""
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM alarms WHERE acknowledged_at IS NULL ORDER BY id"
+            )
+            rows = cur.fetchall()
+        return [dict(r) for r in rows]
+
+    def acknowledge_alarm(self, alarm_id: int, actor: str) -> bool:
+        """Bestätigt einen Alarm. False, wenn er nicht existiert oder schon bestätigt ist."""
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                UPDATE alarms SET acknowledged_at = ?, acknowledged_by = ?
+                WHERE id = ? AND acknowledged_at IS NULL
+                """,
+                (_now_iso(), actor, alarm_id),
+            )
+            self._conn.commit()
+            return cur.rowcount == 1
 
     def close_position(
         self,
@@ -329,6 +514,80 @@ class StateStore:
     # ── Housekeeping ──────────────────────────────────────────────────────────
 
     # ── Control Plane (Halt/Resume) ───────────────────────────────────────────
+
+    # ── Scan-Läufe (Direktive 5A) ─────────────────────────────────────────────
+
+    def record_scan_summary(
+        self,
+        *,
+        job_id: str,
+        status: str,
+        started_at: float,
+        finished_at: float,
+        total: int,
+        processed: int,
+        failed: int,
+        signals_found: int,
+        proposals_created: int,
+        error: Optional[str] = None,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Speichert das Ergebnis eines abgeschlossenen Scans."""
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT OR REPLACE INTO scan_runs (
+                    job_id, status, started_at, finished_at, total, processed,
+                    failed, signals_found, proposals_created, error, meta
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    job_id,
+                    status,
+                    _epoch_to_iso(started_at),
+                    _epoch_to_iso(finished_at),
+                    int(total),
+                    int(processed),
+                    int(failed),
+                    int(signals_found),
+                    int(proposals_created),
+                    error,
+                    json.dumps(meta or {}, default=str),
+                ),
+            )
+            self._conn.commit()
+
+    def last_scan_summary(self) -> Optional[Dict[str, Any]]:
+        """Letzter abgeschlossener Scan oder None."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT job_id, status, started_at, finished_at, total, processed, failed, "
+                "signals_found, proposals_created, error, meta "
+                "FROM scan_runs ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        if row is None:
+            return None
+        summary = dict(row)
+        try:
+            summary["meta"] = json.loads(summary.get("meta") or "{}")
+        except ValueError:
+            summary["meta"] = {}
+        return summary
+
+    def realized_pnl_by_symbol(self) -> Dict[str, Dict[str, Any]]:
+        """Realisierter P&L und Anzahl geschlossener Trades pro Symbol."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT symbol, SUM(pnl_usd) AS pnl, COUNT(*) AS trades "
+                "FROM closed_positions GROUP BY symbol"
+            ).fetchall()
+        return {
+            r["symbol"]: {
+                "realized_pnl_usd": round(float(r["pnl"] or 0.0), 2),
+                "trades": int(r["trades"]),
+            }
+            for r in rows
+        }
 
     def get_control_state(self) -> Optional[dict]:
         """Globaler Trading-State oder None, wenn er nie gesetzt wurde."""

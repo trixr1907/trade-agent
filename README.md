@@ -44,7 +44,10 @@ python -m tradeagent.api.app   # http://localhost:8000
 | Methode | Pfad           | Beschreibung                          |
 | ------- | -------------- | ------------------------------------- |
 | GET     | `/`            | Web-Dashboard                         |
-| POST    | `/scan`        | Signale scannen & Anträge erstellen   |
+| POST    | `/scan`        | Batch-Scan starten, liefert `job_id` + Fortschritt |
+| GET     | `/scan/{job_id}` | Fortschritt; nach Abschluss Signale & Anträge in `result` |
+| GET     | `/scan/last`   | Zusammenfassung des letzten abgeschlossenen Scans |
+| GET     | `/universe`    | Entdeckte USDT-Perps, Allowlist-Modus, offene Positionen, P&L pro Symbol |
 | GET     | `/proposals`   | Liste aller Anträge                   |
 | POST    | `/approve`     | Freigabe (nur Server-Trust, fail-closed) |
 | POST    | `/reject`      | Antrag ablehnen                       |
@@ -57,8 +60,20 @@ python -m tradeagent.api.app   # http://localhost:8000
 | POST    | `/control/halt`   | Trading global stoppen             |
 | POST    | `/control/resume` | Trading fortsetzen                 |
 
-`/scan`, `/approve`, `/reject`, `/execute` und `/control/*` verlangen den Header
-`Authorization: Bearer <token>`. Ohne gültige Session antworten sie mit 401.
+`/scan`, `/scan/*`, `/universe`, `/approve`, `/reject`, `/execute` und `/control/*`
+verlangen den Header `Authorization: Bearer <token>`. Ohne gültige Session antworten
+sie mit 401.
+
+## Symbol-Universe und Batch-Scan
+
+- Die Symbolmenge kommt aus `fetch_markets()` von Bitget, gefiltert auf aktive,
+  lineare USDT-Perpetuals (`BTC/USDT:USDT`). Cache: `UNIVERSE_TTL_SECONDS`.
+- `POST /scan` ohne `symbols` scannt die ganze Universe in Batches (`batch_size`,
+  Standard 20, erlaubt 1–100). Es läuft höchstens ein Scan gleichzeitig; ein
+  zweiter Start antwortet mit 409. Fehler einzelner Symbole stoppen den Scan nicht.
+- `LIVE_SYMBOL_ALLOWLIST` leer: Live erlaubt alle entdeckten USDT-Perps. Gesetzt:
+  nur die gelisteten. Ist die Universe nicht verfügbar und älter als
+  `UNIVERSE_MAX_STALE_SECONDS`, wird jedes Symbol abgelehnt (fail-closed).
 
 ## Sicherheit
 

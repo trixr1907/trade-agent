@@ -2,7 +2,10 @@
 
 Endpunkte:
 - GET  /               -> Dashboard
-- POST /scan           -> Signale scannen & Anträge erstellen
+- POST /scan           -> Batch-Scan starten (Job, Fortschritt per Polling)
+- GET  /scan/last      -> Zusammenfassung des letzten abgeschlossenen Scans
+- GET  /scan/{job_id}  -> Fortschritt eines Scan-Jobs (Ergebnis nach Abschluss)
+- GET  /universe       -> Entdeckte USDT-Perps, Allowlist-Modus, Positionen
 - GET  /proposals      -> Liste der Anträge
 - POST /approve        -> Freigabe (Server-Trust, fail-closed)
 - POST /reject         -> Ablehnen
@@ -13,9 +16,12 @@ Endpunkte:
 - GET  /auth/status    -> Session-Status
 - GET  /control/status -> Halt/Resume-State
 - POST /control/halt   -> Trading stoppen
-- POST /control/resume -> Trading fortsetzen
+- POST /control/resume -> Trading fortsetzen (nur ohne unbestätigte Alarme)
+- GET  /control/alarms -> Unbestätigte Alarme
+- POST /control/alarms/{alarm_id}/ack -> Alarm bestätigen
 
-Auth (Bearer-Session) erforderlich: /scan, /approve, /reject, /execute, /control/*.
+Auth (Bearer-Session) erforderlich: /scan, /scan/*, /universe, /approve, /reject,
+/execute, /control/*.
 """
 from __future__ import annotations
 
@@ -40,8 +46,11 @@ from ..graph import (
     run_pipeline,
 )
 from ..control import ControlPlane, TransitionError
+from ..relay import AlarmsOpenError, resume_trading
+from ..scan_jobs import ScanJobBusyError, ScanJobManager, ScanProgress
 from ..signals import analyze_symbol, signals_above_threshold
 from ..state import get_state_store
+from ..universe import allowlist_mode, get_universe, to_engine_symbol, to_perp_form
 from . import auth
 
 app = FastAPI(title="Crypto Trading Signal Agent", version="0.1.0")
@@ -49,8 +58,11 @@ app = FastAPI(title="Crypto Trading Signal Agent", version="0.1.0")
 cfg = load_config()
 store = ProposalStore()
 
-# Configurable scan symbols
-SCAN_SYMBOLS: List[str] = ["BTC/USDT", "ETH/USDT"]
+# Batch-Scan (Direktive 5A): höchstens ein Job gleichzeitig.
+scan_jobs = ScanJobManager()
+# Tests setzen das auf False, damit der Scan im Request-Thread läuft.
+SCAN_RUN_ASYNC = True
+MAX_SCAN_SYMBOLS = 1000
 
 
 # ── Auth & Control-Helfer ─────────────────────────────────────────────────────
@@ -95,9 +107,10 @@ class ControlRequest(BaseModel):
 
 
 class ScanRequest(BaseModel):
-    symbols: List[str] | None = None
+    symbols: List[str] | None = None   # ohne Angabe: alle entdeckten USDT-Perps
     timeframe: str = "1h"
     limit: int = 120
+    batch_size: Optional[int] = None   # Default 20, begrenzt auf 1..100
 
 
 class ApproveRequest(BaseModel):
@@ -179,31 +192,122 @@ def auth_status(authorization: Optional[str] = Header(default=None)):
     }
 
 
+def _requested_perps(raw_symbols: List[str]) -> List[str]:
+    perps: List[str] = []
+    for raw in raw_symbols:
+        symbol = to_perp_form(raw)
+        if symbol and symbol not in perps:
+            perps.append(symbol)
+    return perps
+
+
 @app.post("/scan", dependencies=[Depends(require_session)])
 def scan(req: ScanRequest):
-    symbols = req.symbols or SCAN_SYMBOLS
-    signals = []
-    for symbol in symbols:
-        try:
-            df = fetch_ohlcv(symbol, timeframe=req.timeframe, limit=req.limit, cfg=cfg.exchange)
-            sig = analyze_symbol(symbol, df)
-            if sig is not None:
-                signals.append(sig)
-        except Exception as exc:  # Fail-safe: ein Symbol-Fehler stoppt nicht alle
-            signals.append(None)
-            print(f"[scan] {symbol} Fehler: {exc}")
+    """Startet einen Batch-Scan. Ohne symbols: alle entdeckten USDT-Perps.
 
-    valid = signals_above_threshold(
-        [s for s in signals if s is not None], cfg.risk.min_signal_score
-    )
-    proposals = run_pipeline(valid, cfg, store)
+    Erlaubt in Paper und Live (nur Datenanalyse, keine Orders). Fortschritt per
+    GET /scan/{job_id}; Signale und Anträge stehen nach Abschluss in result.
+    """
+    if req.symbols:
+        perps = _requested_perps(req.symbols)
+        source = "request"
+        if not perps:
+            raise HTTPException(status_code=400, detail="Keine gültigen Symbole angegeben.")
+    else:
+        snapshot = get_universe(cfg).snapshot()
+        perps = list(snapshot.symbols)
+        source = "universe"
+        if not perps:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Symbol-Universe nicht verfügbar: {snapshot.error or 'leer'}",
+            )
+    if len(perps) > MAX_SCAN_SYMBOLS:
+        raise HTTPException(status_code=400, detail=f"Höchstens {MAX_SCAN_SYMBOLS} Symbole pro Scan.")
 
+    timeframe = req.timeframe
+    limit = req.limit
+    # Eine CCXT-Instanz pro Job: Märkte und Rate-Limit werden geteilt.
+    exchange = create_exchange(cfg.exchange)
+
+    def scan_one(perp: str):
+        df = fetch_ohlcv(perp, timeframe=timeframe, limit=limit, cfg=cfg.exchange, exchange=exchange)
+        return analyze_symbol(to_engine_symbol(perp), df)
+
+    def finalize(signals: List[Any], failed: List[str]) -> Dict[str, Any]:
+        valid = signals_above_threshold(signals, cfg.risk.min_signal_score)
+        proposals = run_pipeline(valid, cfg, store)
+        return {
+            "signals": [s.to_dict() for s in valid],
+            "proposals": [p.to_dict() for p in proposals],
+            "mode": cfg.trading.mode,
+            "error": "some symbols failed" if failed else None,
+        }
+
+    def on_finish(progress: ScanProgress) -> None:
+        data = progress.to_dict()
+        result = data.get("result") or {}
+        get_state_store().record_scan_summary(
+            job_id=data["job_id"],
+            status=data["status"],
+            started_at=data["started_at"],
+            finished_at=data["finished_at"] or time.time(),
+            total=data["total"],
+            processed=data["processed"],
+            failed=data["failed"],
+            signals_found=data["signals_found"],
+            proposals_created=len(result.get("proposals") or []),
+            error=data["error"],
+            meta={
+                "source": source,
+                "timeframe": timeframe,
+                "limit": limit,
+                "batch_size": data["batch_size"],
+                "signals_valid": len(result.get("signals") or []),
+                "failed_symbols": data["failed_symbols"],
+            },
+        )
+
+    try:
+        progress = scan_jobs.start(
+            perps, req.batch_size, scan_one, finalize, on_finish=on_finish, run_async=SCAN_RUN_ASYNC
+        )
+    except ScanJobBusyError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "Scanner bereits beschäftigt.", "job_id": exc.job_id},
+        )
     return {
-        "signals": [s.to_dict() for s in valid],
-        "proposals": [p.to_dict() for p in proposals],
+        "job_id": progress.job_id,
+        "progress": progress.to_dict(include_result=False),
         "mode": cfg.trading.mode,
-        "error": "some symbols failed" if None in signals else None,
     }
+
+
+@app.get("/scan/last", dependencies=[Depends(require_session)])
+def scan_last():
+    return {"last_scan": get_state_store().last_scan_summary()}
+
+
+@app.get("/scan/{job_id}", dependencies=[Depends(require_session)])
+def scan_status(job_id: str):
+    progress = scan_jobs.get(job_id)
+    if progress is None:
+        raise HTTPException(status_code=404, detail="Scan-Job unbekannt.")
+    return progress.to_dict()
+
+
+@app.get("/universe", dependencies=[Depends(require_session)])
+def universe_snapshot():
+    data = get_universe(cfg).snapshot().to_dict()
+    data["allowlist_mode"] = allowlist_mode(cfg)
+    data["allowlist"] = list(cfg.live_limits.symbol_allowlist)
+    st = get_state_store()
+    data["open_positions"] = sorted({to_perp_form(p.symbol) for p in st.open_positions()})
+    data["performance"] = {
+        to_perp_form(symbol): stats for symbol, stats in st.realized_pnl_by_symbol().items()
+    }
+    return data
 
 
 @app.get("/proposals", dependencies=[Depends(require_session)])
@@ -251,7 +355,10 @@ def _control_transition(action: str, session: auth.Session, req: Optional[Contro
         if action == "halt":
             new_state = plane.halt(session.account, reason)
         else:
-            new_state = plane.resume(session.account, reason)
+            # Resume nur ohne offene Alarme (Direktive Bitget-Relay).
+            new_state = resume_trading(get_state_store(), session.account, reason)
+    except AlarmsOpenError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except TransitionError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     print(f"[control] {action} durch {session.account}")
@@ -277,6 +384,19 @@ def control_resume(
     session: auth.Session = Depends(require_session),
 ):
     return _control_transition("resume", session, req)
+
+
+@app.get("/control/alarms", dependencies=[Depends(require_session)])
+def control_alarms():
+    return {"alarms": get_state_store().open_alarms()}
+
+
+@app.post("/control/alarms/{alarm_id}/ack")
+def control_alarm_ack(alarm_id: int, session: auth.Session = Depends(require_session)):
+    if not get_state_store().acknowledge_alarm(alarm_id, session.account):
+        raise HTTPException(status_code=404, detail="Alarm nicht gefunden oder bereits bestätigt")
+    print(f"[control] Alarm {alarm_id} bestätigt durch {session.account}")
+    return {"acknowledged": alarm_id}
 
 
 @app.post("/backtest", dependencies=[Depends(require_session)])

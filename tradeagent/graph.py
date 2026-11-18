@@ -219,6 +219,58 @@ def execute(
 
     # ── Order platzieren ───────────────────────────────────────────────────────
     qty = proposal.proposed_size_usd / proposal.signal.price
+
+    if cfg.trading.is_live:
+        # Live: Entry, Stop und Target laufen über den fail-geschlossenen Relay.
+        from .relay import BitgetRelay
+
+        live_stop = proposal.stop_price or proposal.signal.stop_price
+        live_target = proposal.target_price or proposal.signal.target_price
+        try:
+            relay = BitgetRelay(cfg, state)
+        except Exception as exc:
+            return ExecutionResult(
+                proposal_id=proposal_id,
+                symbol=symbol,
+                side=proposal.signal.direction.value,
+                qty=0.0,
+                price=proposal.signal.price,
+                notional_usd=0.0,
+                mode="live",
+                order_id="",
+                status="rejected",
+                raw={"error": f"Relay nicht verfügbar: {exc}"},
+            )
+        result = relay.place_entry(
+            intent_id=proposal_id,
+            symbol=symbol,
+            side=proposal.signal.direction.value,
+            qty=qty,
+            price=proposal.signal.price,
+            stop_price=live_stop,
+            target_price=live_target,
+        )
+        # "unprotected": Position ist real offen (ohne Stop), muss im State sichtbar sein.
+        if result.status in ("filled", "submitted", "unprotected"):
+            live_pos = OpenPosition(
+                proposal_id=proposal_id,
+                symbol=symbol.upper(),
+                side=proposal.signal.direction.value,
+                qty=result.qty,
+                entry_price=result.price,
+                notional_usd=result.notional_usd,
+                stop_price=live_stop,
+                target_price=live_target,
+                opened_at=_now_iso(),
+            )
+            live_pos.stop_order_id = result.raw.get("stop_order_id")
+            live_pos.target_order_id = result.raw.get("target_order_id")
+            state.add_position(live_pos)
+            proposal.state = ApprovalState.EXECUTED
+            proposal.executed_at = now_utc()
+            proposal.fill = result.raw
+        return result
+
     broker = make_broker(cfg)
     result = broker.place_order(
         symbol=symbol,

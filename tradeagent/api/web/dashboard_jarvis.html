@@ -1886,6 +1886,7 @@
               <label class="symbol-option"><input type="checkbox" value="BNB/USDT" /><span>BNB/USDT</span></label>
               <label class="symbol-option"><input type="checkbox" value="XRP/USDT" /><span>XRP/USDT</span></label>
             </div>
+            <label class="symbol-option"><input type="checkbox" id="scan-universe" /><span>Alle USDT-Perps</span></label>
           </div>
 
           <div class="field">
@@ -2299,7 +2300,8 @@
         }
 
         if (!response.ok) {
-          throw new Error(data.detail || `HTTP ${response.status}`);
+          const detail = typeof data.detail === "string" ? data.detail : data.detail?.message;
+          throw new Error(detail || `HTTP ${response.status}`);
         }
 
         return data;
@@ -2523,10 +2525,39 @@
       }
     }
 
+    const SCAN_POLL_MS = 1000;
+    const SCAN_MAX_WAIT_MS = 30 * 60 * 1000;
+
+    function scanDelay(ms) {
+      return new Promise((resolve) => window.setTimeout(resolve, ms));
+    }
+
+    function scanProgressText(progress) {
+      const percent = finiteNumber(progress?.percent) ?? 0;
+      return `SCAN ${Math.round(percent)}% · ${progress?.processed ?? 0}/${progress?.total ?? 0} SYMBOLE · BATCH ${progress?.batches_done ?? 0}/${progress?.batch_count ?? 0}`;
+    }
+
+    async function waitForScan(jobId) {
+      const deadline = Date.now() + SCAN_MAX_WAIT_MS;
+      while (true) {
+        const progress = await api(`/scan/${encodeURIComponent(jobId)}`);
+        if (progress.status === "done") return progress;
+        if (progress.status === "failed") {
+          throw new Error(progress.error || "Scan-Job fehlgeschlagen");
+        }
+        $("#signal-status").textContent = scanProgressText(progress);
+        if (Date.now() > deadline) {
+          throw new Error("Scan läuft zu lange, Ergebnis später unter /scan/last prüfen");
+        }
+        await scanDelay(SCAN_POLL_MS);
+      }
+    }
+
     async function scan() {
       if (state.busyScan) return;
 
       const button = $("#scan-button");
+      const useUniverse = Boolean($("#scan-universe")?.checked);
       const symbols = selectedSymbols("signal-symbols", ["BTC/USDT", "ETH/USDT"]);
       const timeframe = $("#timeframe").value;
       const limit = clamp(parseInt($("#scan-limit").value, 10) || 120, 35, 500);
@@ -2534,10 +2565,20 @@
       state.busyScan = true;
       setButtonLoading(button, true, "SCANNING", "⌕ Scan starten");
       $("#signal-status").textContent = "MARKTDATEN WERDEN ANALYSIERT";
-      addLog(`Scan gestartet: ${symbols.join(", ")} @ ${timeframe}`, "info");
+      addLog(`Scan gestartet: ${useUniverse ? "alle USDT-Perps" : symbols.join(", ")} @ ${timeframe}`, "info");
 
       try {
-        const response = await api("/scan", "POST", { symbols, timeframe, limit });
+        const body = useUniverse ? { timeframe, limit } : { symbols, timeframe, limit };
+        const started = await api("/scan", "POST", body);
+        if (!started?.job_id) {
+          throw new Error("Server lieferte keine Scan-Job-ID");
+        }
+        $("#signal-status").textContent = scanProgressText(started.progress);
+        const finished = await waitForScan(started.job_id);
+        const response = finished.result || {};
+        if (finished.failed) {
+          addLog(`${finished.failed} von ${finished.total} Symbolen fehlgeschlagen.`, "error");
+        }
         const signals = Array.isArray(response.signals) ? response.signals : [];
         state.proposals = Array.isArray(response.proposals) ? response.proposals : [];
 

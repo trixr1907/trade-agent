@@ -34,10 +34,15 @@ def fetch_ohlcv(
     timeframe: str = "1h",
     limit: int = 120,
     cfg: Optional[ExchangeConfig] = None,
+    exchange: Optional["ccxt.Exchange"] = None,
 ) -> pd.DataFrame:
-    """Lädt OHLCV-Daten und normalisiert zu einem DataFrame."""
-    cfg = cfg or ExchangeConfig()
-    exchange = create_exchange(cfg)
+    """Lädt OHLCV-Daten und normalisiert zu einem DataFrame.
+
+    exchange: optional wiederverwendete CCXT-Instanz (Batch-Scan), damit Märkte
+    und Rate-Limit nicht für jedes Symbol neu aufgebaut werden.
+    """
+    if exchange is None:
+        exchange = create_exchange(cfg or ExchangeConfig())
     ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
 
     df = pd.DataFrame(
