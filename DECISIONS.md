@@ -366,6 +366,20 @@ Der Korrektur-Eintrag oben (Commit 57dca48) ist falsch. Die Aussage, das 24-Bar-
 - **Nicht Teil des Verdikts:** Sharpe, Sortino und DSR.
 - **Merge:** Bleibt ausgesetzt.
 
+### Ergebnis Pre-Registration 3 (4h, netto, Symbole gepoolt)
+
+Die Läufe sind mit der festgelegten Konfiguration durchgeführt worden. Die Werte stehen in der Form Basis Trades / mit SMC Trades.
+
+- **Zeitraum A:** 299 / 125 Trades. Basis Avg R −0,091 [−0,241; +0,036]. Δ (SMC − Basis) +0,068 [−0,252; +0,513]. 6 Wochen-Blöcke.
+- **Zeitraum B:** 294 / 155 Trades. Basis Avg R −0,204 [−0,550; +0,329]. Δ −0,024 [−0,172; +0,195]. 5 Wochen-Blöcke.
+- **Zeitraum C:** 291 / 139 Trades. Basis Avg R +0,114 [−0,189; +0,454]. Δ −0,209 [−0,301; +0,189]. 6 Wochen-Blöcke.
+- **Gepoolt A bis C:** 884 / 419 Trades. Basis Avg R −0,061 [−0,255; +0,148]. Δ −0,062 [−0,191; +0,120]. 17 Wochen-Blöcke.
+- **Gepoolt A bis D (Berichtsregel, alle vier Zeiträume gültig):** 1466 / 683 Trades. Basis Avg R +0,009 [−0,198; +0,207]. Δ −0,065 [−0,167; +0,061]. 25 Wochen-Blöcke.
+- **Abnahmen:** Abnahme 1 erfüllt, lückenlose Serien. Abnahme 2 erfüllt, time-Exits > 0 in allen Läufen. Abnahme 3 erfüllt, gepoolt ≥ 100 Trades je Variante. Abnahme 4 erfüllt, 109 bis 111 OOS-Bars je Fold.
+- **Verdikt:** Die Basis ist nicht als positiv belegt, weil die untere CI-Grenze in den gepoolten Auswertungen unter 0 liegt. SMC ist nicht von 0 unterscheidbar, weil das Δ-CI in allen Zusammenstellungen 0 enthält. Der Merge bleibt ausgesetzt. Das 4h-Verdikt aus Pre-Registration 2 ist mit vier gültigen Zeiträumen bestätigt.
+- **Einschränkung:** Je Zeitraum gibt es nur 5 bis 6 Wochen-Blöcke. Die CIs der Einzelzeiträume sind grob und nur beschreibend. Zeitraum C hat einen positiven Punktschätzer der Basis, sein CI enthält aber 0.
+- **Hinweis zur Auswertung:** analyze_ranges.py enthält die Konstante MIN_PERIODS = 3 und markiert Einzelzeiträume deshalb als „nicht robust bewertet“. Diese Mindestzahl steht weder in Pre-Registration 2 noch in Pre-Registration 3. Die Markierung ist nur Beschreibung und ändert das Verdikt nicht.
+
 ### Ergebnis Pre-Registration 2 (4h, Zeitraum D, n_folds=2)
 
 - **Abnahme 1 (Datenlage):** erfüllt. Lückenlose 4h-Serie für D, 1104 Bars je Symbol (2024-05-01 00:00 bis 2024-10-31 20:00 UTC). Eine frühere Fassung dieser Zeile nannte 4416 Bars, das ist die Länge der 1h-Serie.
