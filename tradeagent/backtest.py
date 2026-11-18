@@ -499,19 +499,13 @@ def run_walk_forward(
             if len(window) < 20:
                 continue  # Mindestfenster für Indikatoren
             try:
-                result = analyze_symbol(
-                    df=window,
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    min_score=config.min_signal_score,
-                )
+                sig = analyze_symbol(symbol, window)
             except Exception:
                 continue
 
-            if result is None or result.signal is None:
+            if sig is None or sig.score < config.min_signal_score:
                 continue
 
-            sig = result.signal
             trade = _simulate_trade(
                 signal=sig,
                 df=oos_df,
