@@ -327,6 +327,16 @@ Gültige Messung nach den vorab festgelegten Regeln. Alle 1h-Läufe haben die Ab
 
 **4h: ungültig.** In sechs Läufen ist die Abnahme 2 nicht erfüllt, weil der max_hold-Zähler 0 ist: ETH/USDT 4h Zeitraum C (brutto und netto, mit und ohne SMC) sowie SOL/USDT 4h Zeitraum C (brutto und netto, mit SMC). Für 4h gibt es deshalb kein Ergebnis und kein Verdikt. Die Hypothese „OOS-Fenster zu kurz“ ist widerlegt: Die OOS-Fenster liegen bei 73 bis 74 Bars, also über 24. Die Ursache der Nullzähler ist offen. Eine Re-Registration erfolgt erst nach der Ursachenanalyse und mit eigenem Pre-Registration-Commit.
 
+#### Korrektur: Robustheitsmessung 1h war nicht regelkonform (nur berichtend, kein Gate)
+Der Eintrag «Ergebnis: Robustheitsmessung 1h (Pre-Registration ce6093a)» oben ist ungültig und wird durch eine Neumessung ersetzt.
+
+- **Befund:** Die Engine in `tradeagent/backtest.py` (`_simulate_trade`, Zeilen 130 bis 185) kennt nur die Exit-Gründe `stop`, `target` und `eod`. Ein Haltelimit von 24 Bars ist dort nicht implementiert.
+- **Ursache des time-Zählers:** Das Label `time` entsteht nur nachträglich. In `snapshots/diag_maxhold.py` (Zeilen 54 bis 55) und in `snapshots/measure_ranges.py` wird ein `eod`-Trade nur dann auf `time` umgeschrieben, wenn sein Exit genau auf Entry + 24 Bars fällt. Das tritt nur auf, wenn ein Trade 24 Bars vor dem Datenende eröffnet wird.
+- **Folge:** Die Abnahme 2 («max_hold-Zähler > 0») prüfte deshalb einen Zufallstreffer, nicht die Haltelimit-Regel. Die 1h-Zahlen (Basis −0,116, Δ −0,045) stammen aus einer Messung ohne wirksames Haltelimit. Sie sind nicht als pre-registriertes Ergebnis zu werten.
+- **Was unverändert gilt:** Die Pre-Registration ce6093a bleibt gültig. Die Regeln (24 Bars, Block-Bootstrap, Interpretation) werden nicht geändert. Umgesetzt wurden sie nicht.
+- **Die 4h-Nullzähler** erklären sich aus derselben Ursache. Die Hypothese «OOS-Fenster zu kurz» bleibt widerlegt, weil die Fenster 73 bis 74 Bars haben.
+- **Nächster Schritt:** Das Haltelimit wird in der Engine erzwungen, mit `exit_reason = "time"` direkt in der Schleife. Dazu gehört ein Engine-Diff zur Prüfung, bevor neu gemessen wird. Die Neumessung von 1h und 4h ist die erste regelkonforme Ausführung. Der Merge bleibt ausgesetzt.
+
 ## Sicherheits-Prinzipien (von Tag 1)
 - API-Keys **nur** aus Env/Secrets — niemals im Quellcode.
 - Client-Eingaben niemals als Trust-Quelle für Ausführung.
