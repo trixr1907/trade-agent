@@ -365,3 +365,15 @@ Der Korrektur-Eintrag oben (Commit 57dca48) ist falsch. Die Aussage, das 24-Bar-
 - **Verdikt-Regeln (unverändert zu ce6093a):** Die Basis ist positiv, wenn die untere CI-Grenze des Avg R über 0 liegt. SMC ist unterscheidbar, wenn das Δ-CI 0 nicht enthält.
 - **Nicht Teil des Verdikts:** Sharpe, Sortino und DSR.
 - **Merge:** Bleibt ausgesetzt.
+
+### Ergebnis Pre-Registration 2 (4h, Zeitraum D, n_folds=2)
+
+- **Abnahme 1 (Datenlage):** erfüllt. Lückenlose 4h-Serie für D, 4416 Bars je Symbol.
+- **Abnahme 2 (max_hold-Zähler):** erfüllt. Alle sechs Läufe haben time-Exits > 0 (SMC aus: 41, 51, 34; SMC an: 12, 23, 17).
+- **OOS-Länge:** 166 Bars je Fold, im Rahmen der Erwartung von rund 160.
+- **eod-Anteil (netto):** SMC aus 2,1 % (12 von 582), SMC an 0,4 % (1 von 264). Die Erwartung von rund 15 % wird deutlich unterschritten.
+- **Trades (netto):** Basis 582, mit SMC 264.
+- **Avg R Basis:** +0,114, 95-%-CI [−0,317; +0,464].
+- **Δ Avg R (SMC − Basis):** −0,065, 95-%-CI [−0,226; +0,079].
+- **Verdikt:** Kein Verdikt. Die Auswertung findet nur einen Zeitraum mit Daten (D), die Verdikt-Regel verlangt mindestens drei getrennte Zeiträume. Die Basis ist damit nicht positiv belegt, SMC ist nicht von 0 unterscheidbar, nur mit dieser Datenlage gilt das nicht als robust.
+- **Merge:** Bleibt ausgesetzt.
