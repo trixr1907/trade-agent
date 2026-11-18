@@ -90,6 +90,38 @@ Gewichte werden an dieser Stichprobe nicht nachjustiert, weil das Kurven-Anpassu
 wäre. Bis zur Merge-Entscheidung liegt SMC auf dem Branch `feat/smc-confluence`.
 Über den Merge auf main entscheidet ein Mensch.
 
+#### Erweiterter Vergleich: 6 Snapshots (nur berichtend, kein Gate)
+Gleiche Config wie oben (3 Folds, `is_ratio` 0.70, `min_signal_score` 50,
+`bars_per_year` 252 * 24 bzw. 252). 1h-Snapshots: 500 Bars, 2026-10-28 bis
+2026-11-18. 4h-Snapshots: 500 Bars, 2026-08-27 bis 2026-11-18. Der Lauf ohne
+SMC ersetzt `analyze_smc` durch ein neutrales Ergebnis (Konfluenz 1.0, kein
+Veto). Auf BTC/USDT 1h reproduziert er den Stand vor SMC exakt (28 Trades,
+Durchschnitts-Score 59,8). Avg R pro Trade = SumR / Trades.
+
+| Snapshot    | Trades ohne / mit SMC | Avg R pro Trade ohne / mit | PF ohne / mit      | SumR ohne / mit  |
+| ----------- | --------------------- | -------------------------- | ------------------ | ---------------- |
+| BTC/USDT 1h | 28 / 19               | −0,385 / −0,419            | 0,0010 / 0,0003    | −10,78 / −7,97   |
+| ETH/USDT 1h | 38 / 21               | −0,318 / −0,388            | 0,0897 / 0,1017    | −12,07 / −8,14   |
+| SOL/USDT 1h | 35 / 16               | −0,066 / −0,169            | 0,7199 / 0,1416    | −2,31 / −2,70    |
+| BTC/USDT 4h | 34 / 1                | −0,370 / +0,020            | 0,1153 / (1 Trade) | −12,57 / +0,02   |
+| ETH/USDT 4h | 39 / 5                | −0,371 / −0,448            | 0,1277 / 0,0250    | −14,47 / −2,24   |
+| SOL/USDT 4h | 36 / 9                | −0,509 / −0,638            | 0,0623 / 0,0000    | −18,34 / −5,74   |
+| Summe       | 210 / 71              | −0,336 / −0,377            |                    | −70,54 / −26,77  |
+
+Befunde:
+- SMC wählt keine besseren Trades aus. In 5 von 6 Snapshots ist der Avg R pro
+  Trade mit SMC schlechter, der sechste besteht aus einem einzigen Trade.
+- Der Gesamtverlust sinkt nur, weil weniger gehandelt wird (71 statt 210 Trades).
+  Bei 4h liegen die Rohscores bei etwa 52 bis 54. Mit dem Faktor 0,7 bis 1,0 und
+  der Schwelle 50 kommt ein Signal dort nur bei sehr hoher Konfluenz durch.
+- Die Basis-Engine verliert schon ohne SMC in allen 6 Snapshots.
+
+Signifikanz: Der höchste DSR liegt bei 0,0061. Die Snapshots überlappen sich
+zeitlich und hängen über den gemeinsamen Markt zusammen. 210 Trades sind deshalb
+keine 210 unabhängigen Beobachtungen. Die Evidenz spricht leicht gegen SMC, ist
+aber nicht signifikant. Formel, Gewichte und Schwelle bleiben unverändert. Über
+den Merge auf main entscheidet weiterhin ein Mensch.
+
 ## Sicherheits-Prinzipien (von Tag 1)
 - API-Keys **nur** aus Env/Secrets — niemals im Quellcode.
 - Client-Eingaben niemals als Trust-Quelle für Ausführung.
