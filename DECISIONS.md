@@ -239,6 +239,53 @@ senkt in dieser Konfiguration die Summe R und das Avg R pro Trade. Die Richtung 
 konsistent, aber nicht signifikant. Formel, Gewichte und Schwelle bleiben unverändert.
 Der Merge auf main bleibt ausgesetzt. Über den Merge entscheidet ein Mensch.
 
+#### Attribution: Basis-Umkehr durch Fenster oder Zeitlimit (n_folds=1, ohne max_hold)
+Diese Messung trennt die Fensterlänge vom Zeitlimit. Sie nutzt dieselbe Konfiguration
+wie der Abschnitt oben, nur ohne `max_hold`.
+
+- **Konfiguration:** `n_folds=1`, `is_ratio` 0,70, `min_signal_score` 50, Überlapp-Sperre
+  als separate Zeile. `max_hold` ist deaktiviert (Schalter `--no-max-hold` in
+  `snapshots/diag_maxhold.py`). Der Produktivcode ist unverändert.
+- **Abnahme:** Alle 12 Läufe liefern Trades. Der max_hold-Zähler ist erwartungsgemäß 0,
+  weil das Haltelimit deaktiviert ist.
+
+Ergebnis, netto, Zeile «hold» (ohne Überlapp-Sperre):
+
+| Snapshot    | Trades ohne SMC | SumR ohne SMC | Avg R ohne SMC | Trades mit SMC | SumR mit SMC | Avg R mit SMC |
+| ----------- | --------------- | ------------- | -------------- | -------------- | ------------ | ------------- |
+| BTC/USDT 1h | 79              | +19,55        | +0,247         | 20             | −5,05        | −0,253        |
+| ETH/USDT 1h | 79              | +21,42        | +0,271         | 23             | +2,95        | +0,128        |
+| SOL/USDT 1h | 88              | −2,96         | −0,034         | 29             | −0,37        | −0,013        |
+| BTC/USDT 4h | 103             | +38,59        | +0,375         | 40             | +5,11        | +0,128        |
+| ETH/USDT 4h | 95              | +28,89        | +0,304         | 32             | −0,92        | −0,029        |
+| SOL/USDT 4h | 105             | +54,84        | +0,522         | 57             | +45,26       | +0,794        |
+| Summe       | 549             | +160,33       | +0,292         | 201            | +46,98       | +0,234        |
+
+Zum Vergleich, gleiche Fenster mit max_hold=24: Summe ohne SMC +176,48 R (+0,321 R/Trade),
+mit SMC +52,87 R (+0,263 R/Trade).
+
+Befunde:
+
+- **Attribution:** Die Basis-Engine bleibt ohne Zeitlimit positiv (+160,33 R, +0,292 R/Trade).
+  max_hold ändert die Summe nur um 16,15 R. Die Umkehr gegenüber dem 3-Fold-Setup kommt
+  also vom Fenster, nicht vom Zeitlimit.
+- **Grenze der Attribution:** Mit `n_folds=1` ändern sich Fensterlänge und IS/OOS-Schnitt
+  gemeinsam. Dieser Lauf trennt nur das Zeitlimit ab. Ob die Fensterlänge oder der Schnitt
+  wirkt, bleibt offen.
+- **SMC, Summe R:** Mit SMC niedriger in 5 von 6 Snapshots. Ausnahme ist SOL/USDT 1h
+  (−2,96 ohne, −0,37 mit SMC).
+- **SMC, Avg R:** Mit SMC niedriger in 4 von 6 Snapshots. Bei SOL/USDT 1h und SOL/USDT 4h
+  liegt Avg R mit SMC höher. Gepoolt sinkt Avg R von +0,292 auf +0,234.
+- **Korrektur zum Abschnitt oben:** Die Aussage «Avg R sinkt in 5 von 6 Snapshots» hängt an
+  der Konfiguration mit max_hold. Ohne max_hold gilt sie nur für 4 von 6.
+- **Überlapp-Sperre:** Nur 3 bis 7 Trades pro Snapshot bleiben übrig. Diese Zeilen sind
+  keine Grundlage für einen Befund.
+
+Verdikt (nur für diese Konfiguration): Die Umkehr kommt vom Fenster, nicht vom Zeitlimit.
+SMC senkt die Summe R in 5 von 6 Snapshots und die gepoolte Avg R. Die Richtung ist
+nicht einheitlich, und ein Signifikanztest fehlt. Der Merge auf main bleibt ausgesetzt.
+Über den Merge entscheidet ein Mensch.
+
 ## Sicherheits-Prinzipien (von Tag 1)
 - API-Keys **nur** aus Env/Secrets — niemals im Quellcode.
 - Client-Eingaben niemals als Trust-Quelle für Ausführung.
