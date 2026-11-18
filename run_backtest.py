@@ -55,7 +55,7 @@ def main() -> None:
 
         print(f"[INFO] {len(df)} Bars geladen. Starte Walk-Forward …", flush=True)
         try:
-            result = run_walk_forward(symbol, df, wf_cfg)
+            result = run_walk_forward(df, symbol, args.timeframe, config=wf_cfg)
         except ValueError as e:
             print(f"[ERROR] {e}", file=sys.stderr)
             continue
