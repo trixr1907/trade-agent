@@ -2199,6 +2199,7 @@
         addLog(`Angemeldet als ${state.auth.account}.`, "info");
         toast("Anmeldung erfolgreich", "info");
         loadHealth();
+        loadProposals();
       } catch (error) {
         $("#login-error").textContent = error.message || "Anmeldung fehlgeschlagen";
         $("#login-password").value = "";
@@ -3016,9 +3017,10 @@
 
     addLog("HUD initialisiert. Fail-closed-Freigabeworkflow aktiv.", "info");
     loadHealth();
-    loadProposals();
     window.setInterval(loadHealth, 30000);
-    initAuth();
+    initAuth().then(() => {
+      if (state.auth) loadProposals();
+    });
     runBootSequence();
   </script>
 </body>

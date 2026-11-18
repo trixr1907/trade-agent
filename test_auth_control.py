@@ -138,6 +138,8 @@ PROTECTED = [
     ("GET", "/control/status", None),
     ("POST", "/control/halt", {"reason": "test"}),
     ("POST", "/control/resume", {"reason": "test"}),
+    ("GET", "/proposals", None),
+    ("POST", "/backtest", {}),
 ]
 
 

@@ -206,7 +206,7 @@ def scan(req: ScanRequest):
     }
 
 
-@app.get("/proposals")
+@app.get("/proposals", dependencies=[Depends(require_session)])
 def list_proposals():
     return {"proposals": [p.to_dict() for p in store.list()]}
 
@@ -279,7 +279,7 @@ def control_resume(
     return _control_transition("resume", session, req)
 
 
-@app.post("/backtest")
+@app.post("/backtest", dependencies=[Depends(require_session)])
 def backtest_endpoint(req: BacktestRequest):
     """Führt Walk-Forward-Backtest für ein oder mehrere Symbole aus."""
     wf_cfg = WalkForwardConfig(
