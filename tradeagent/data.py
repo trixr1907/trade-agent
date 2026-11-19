@@ -23,6 +23,9 @@ def create_exchange(cfg: ExchangeConfig):
             "secret": cfg.api_secret or None,
             "password": cfg.api_passphrase or None,
             "enableRateLimit": True,
+            # uta fest aus BITGET_UTA (wie relay._build_exchange): CCXT rät den
+            # Kontotyp sonst über /api/v3/account/settings und routet ggf. falsch.
+            "options": {"uta": bool(cfg.uta)},
         }
     )
     # Bitget benötigt nonce/timeout für sign — für Public-Data unnötig.

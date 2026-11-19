@@ -39,6 +39,10 @@ python -m tradeagent.api.app   # http://localhost:8000
 > **Paper-first:** Standardmäßig läuft `TRADING_MODE=paper`. Live wird nur nach
 > Freigabe und unter den Limits in `.env` aktiviert (fail-closed).
 
+> **Bitget-Kontotyp:** `BITGET_UTA` legt fest, welche Bitget-Endpunkte genutzt werden:
+> `false` = klassische Mix-Endpunkte (Standard), `true` = UTA (Unified Trading Account).
+> Der Wert muss zum Kontotyp passen, in dem das Guthaben liegt. Ungültige Werte brechen den Start ab.
+
 ## Endpunkte
 
 | Methode | Pfad           | Beschreibung                          |

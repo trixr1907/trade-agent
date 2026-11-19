@@ -132,7 +132,9 @@ def _build_exchange(cfg: Config) -> Any:
             "secret": cfg.exchange.api_secret,
             "password": cfg.exchange.api_passphrase,
             "enableRateLimit": True,
-            "options": {"defaultType": "swap"},
+            # uta fest gesetzt: CCXT fragt dann nicht /api/v3/account/settings ab,
+            # um den Kontotyp zu raten. Der Wert aus BITGET_UTA bestimmt die Endpunkte.
+            "options": {"defaultType": "swap", "uta": bool(cfg.exchange.uta)},
         }
     )
     # Demo: CCXT sendet dann PAPTRADING: 1 bei jedem Request (gleiche Domain, gleiche Symbole).

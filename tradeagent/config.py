@@ -13,6 +13,10 @@ from typing import Iterable, List, Optional
 _TRUE_VALUES = ("true", "1", "yes")
 _FALSE_VALUES = ("false", "0", "no")
 
+# BITGET_UTA: bewusst enge Liste, jeder andere Wert bricht den Start ab (fail-closed).
+_UTA_TRUE_VALUES = ("true", "True", "1")
+_UTA_FALSE_VALUES = ("false", "False", "0")
+
 
 def _get(name: str, default: str = "") -> str:
     return os.getenv(name, default).strip()
@@ -72,6 +76,9 @@ class ExchangeConfig:
     leverage: int = 3
     # Bitget Demo-Trading (Header PAPTRADING: 1). Nutzt ausschließlich BITGET_DEMO_API_*-Keys.
     demo: bool = False
+    # Bitget-Kontotyp, fest konfiguriert (BITGET_UTA). False = klassische Mix-Endpunkte,
+    # True = Unified Trading Account. Ersetzt die automatische Erkennung von CCXT.
+    uta: bool = False
 
     @property
     def has_live_credentials(self) -> bool:
@@ -180,6 +187,16 @@ def load_config() -> Config:
     # Demo und Live sind getrennt: Im Demo-Modus werden die Live-Keys nie geladen.
     raw_demo = (_get("BITGET_DEMO", "false") or "false").lower()
     cfg.exchange.demo = raw_demo in _TRUE_VALUES
+    raw_uta = _get("BITGET_UTA", "false") or "false"
+    if raw_uta in _UTA_TRUE_VALUES:
+        cfg.exchange.uta = True
+    elif raw_uta in _UTA_FALSE_VALUES:
+        cfg.exchange.uta = False
+    else:
+        raise RuntimeError(
+            f"BITGET_UTA={raw_uta!r} ungültig (erlaubt: true/True/1 oder false/False/0). "
+            "Fail-closed: unklar, ob klassisches Konto oder UTA gemeint ist."
+        )
     key_prefix = "BITGET_DEMO_API" if cfg.exchange.demo else "BITGET_API"
     cfg.exchange.api_key = _get(f"{key_prefix}_KEY")
     cfg.exchange.api_secret = _get(f"{key_prefix}_SECRET")
