@@ -33,6 +33,35 @@ def _perp_symbol(symbol: str) -> Optional[str]:
         return None
 
 
+def _with_execute_fill(exchange: Any, plan_order: Dict[str, Any], perp: str) -> Dict[str, Any]:
+    """Ergänzt eine ausgelöste Bitget-Plan-Order um den echten Fill-Preis.
+
+    Die Plan-Order (pos_loss/pos_profit, planStatus=executed) hat selbst kein
+    'average'. Den Fill hat nur die Market-Order, die Bitget beim Auslösen
+    erzeugt; ihre ID steht in info.executeOrderId. Status und ID der
+    Plan-Order bleiben unverändert. Ohne Ergebnis bleibt die Order wie sie ist.
+    """
+    if plan_order.get("average"):
+        return plan_order
+    info = plan_order.get("info")
+    execute_id = str(info.get("executeOrderId") or "") if isinstance(info, dict) else ""
+    if not execute_id:
+        return plan_order
+    try:
+        executed = exchange.fetch_order(execute_id, perp)
+    except Exception as exc:
+        logger.warning("Ausgelöste Order %s für %s nicht abrufbar: %s", execute_id, perp, exc)
+        return plan_order
+    average = executed.get("average") if isinstance(executed, dict) else None
+    try:
+        value = float(average) if average is not None else 0.0
+    except (TypeError, ValueError):
+        value = 0.0
+    if value > 0:
+        plan_order["average"] = value
+    return plan_order
+
+
 def _find_by_id(orders: Any, order_id: str) -> Optional[Dict[str, Any]]:
     if not isinstance(orders, list):
         return None
@@ -300,7 +329,8 @@ class LiveBroker:
             history = None
         found = _find_by_id(history, order_id)
         if found is not None:
-            return found
+            # Ausgelöst: Fill-Preis aus der von Bitget erzeugten Market-Order.
+            return _with_execute_fill(self.exchange, found, perp)
         try:
             return dict(self.exchange.fetch_order(order_id, perp))
         except Exception:

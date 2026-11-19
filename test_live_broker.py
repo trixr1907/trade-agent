@@ -18,6 +18,7 @@ class FakeTriggerExchange:
         self.fail_open: Optional[Exception] = None
         self.fail_history: Optional[Exception] = None
         self.calls: List[Dict[str, Any]] = []
+        self.orders: Dict[str, Dict[str, Any]] = {}
 
     def fetch_open_orders(self, symbol=None, since=None, limit=None, params=None):
         self.calls.append({"call": "fetch_open_orders", "symbol": symbol, "params": dict(params or {})})
@@ -33,6 +34,8 @@ class FakeTriggerExchange:
 
     def fetch_order(self, id, symbol=None, params=None):  # noqa: A002
         self.calls.append({"call": "fetch_order", "id": id, "symbol": symbol})
+        if id in self.orders:
+            return dict(self.orders[id])
         raise ccxt.OrderNotFound(id)
 
     def cancel_order(self, id, symbol=None, params=None):  # noqa: A002
@@ -91,6 +94,49 @@ class TestLiveBrokerTriggerOrders(unittest.TestCase):
         self.assertTrue(self.broker.cancel_order("BTC/USDT", "n1"))
         cancel = [c for c in self.ex.calls if c["call"] == "cancel_order"][0]
         self.assertEqual(cancel["params"], {})
+
+    def _executed_stop(self, execute_id: str) -> Dict[str, Any]:
+        return {
+            "id": "s1",
+            "status": "closed",
+            "price": None,
+            "average": None,
+            "triggerPrice": 95.0,
+            "info": {"planType": "pos_loss", "planStatus": "executed", "executeOrderId": execute_id},
+        }
+
+    def test_executed_trigger_uses_execute_order_average(self) -> None:
+        self.ex.history = [self._executed_stop("m1")]
+        self.ex.orders = {"m1": {"id": "m1", "status": "closed", "type": "market", "average": 94.6}}
+        order = self.broker.fetch_order("BTC/USDT", "s1")
+        self.assertIsNotNone(order)
+        self.assertEqual(order["id"], "s1")
+        self.assertTrue(_is_filled(order))
+        self.assertEqual(_extract_fill_price(order, 0.0), 94.6)
+        lookup = [c for c in self.ex.calls if c["call"] == "fetch_order"]
+        self.assertEqual(lookup, [{"call": "fetch_order", "id": "m1", "symbol": "BTC/USDT:USDT"}])
+
+    def test_execute_order_not_found_keeps_trigger_fallback(self) -> None:
+        self.ex.history = [self._executed_stop("m1")]
+        order = self.broker.fetch_order("BTC/USDT", "s1")
+        self.assertIsNotNone(order)
+        self.assertTrue(_is_filled(order))
+        self.assertIsNone(order["average"])
+        self.assertEqual(_extract_fill_price(order, 0.0), 95.0)
+
+    def test_execute_order_without_average_keeps_trigger_fallback(self) -> None:
+        self.ex.history = [self._executed_stop("m1")]
+        self.ex.orders = {"m1": {"id": "m1", "status": "open", "average": None}}
+        order = self.broker.fetch_order("BTC/USDT", "s1")
+        self.assertEqual(_extract_fill_price(order, 0.0), 95.0)
+
+    def test_empty_execute_order_id_skips_lookup(self) -> None:
+        cancelled = self._executed_stop("")
+        cancelled["status"] = "canceled"
+        self.ex.history = [cancelled]
+        order = self.broker.fetch_order("BTC/USDT", "s1")
+        self.assertIsNotNone(order)
+        self.assertEqual([c for c in self.ex.calls if c["call"] == "fetch_order"], [])
 
 
 if __name__ == "__main__":
